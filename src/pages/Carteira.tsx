@@ -4,11 +4,11 @@ import { Botao, Card, Input, Sparkline, fmt } from "../components/UI";
 
 const MOEDAS = [
   { s: "BRL", nome: "Real", simb: "R$", taxaBRL: 1, e: "🇧🇷" },
-  { s: "USD", nome: "Dólar", simb: "US$", taxaBRL: 5.42, e: "🇺🇸" },
-  { s: "EUR", nome: "Euro", simb: "€", taxaBRL: 5.88, e: "🇪🇺" },
-  { s: "BTC", nome: "Bitcoin", simb: "₿", taxaBRL: 384520.33, e: "🟠" },
-  { s: "ETH", nome: "Ethereum", simb: "Ξ", taxaBRL: 19870.11, e: "🔷" },
-  { s: "USDT", nome: "Tether", simb: "₮", taxaBRL: 5.42, e: "🟢" },
+//  { s: "USD", nome: "Dólar", simb: "US$", taxaBRL: 5.42, e: "🇺🇸" },
+//  { s: "EUR", nome: "Euro", simb: "€", taxaBRL: 5.88, e: "🇪🇺" },
+//  { s: "BTC", nome: "Bitcoin", simb: "₿", taxaBRL: 384520.33, e: "🟠" },
+//  { s: "ETH", nome: "Ethereum", simb: "Ξ", taxaBRL: 19870.11, e: "🔷" },
+//  { s: "USDT", nome: "Tether", simb: "₮", taxaBRL: 5.42, e: "🟢" },
 ];
 
 export default function Carteira() {
