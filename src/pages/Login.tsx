@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useApp } from "../store/AppContext";
+import { useConfig } from "../store/ConfigContext";
 import { Botao, Card, Input } from "../components/UI";
 
 export default function Login() {
   const { entrar, registrar, toast } = useApp();
+  const { cfg } = useConfig();
   const [modo, setModo] = useState<"login" | "registro">("login");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [load, setLoad] = useState(false);
+  const bonus = Math.max(0, Math.round(cfg.saldoInicial));
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +23,7 @@ export default function Login() {
       } else {
         if (nome.trim().length < 2) throw new Error("Informe um nome válido");
         await registrar(nome.trim(), email.trim(), senha);
-        toast("Conta criada! Você ganhou 500 MAS 🎁", "ok");
+        toast(`Conta criada! Você ganhou ${bonus} MAS de bônus 🎁`, "ok");
       }
     } catch (err) {
       const m = (err as Error).message || "";

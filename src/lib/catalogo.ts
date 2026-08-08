@@ -1,7 +1,8 @@
 /* ============================================================
-   CATÁLOGO GLOBAL — itens da loja, rigs, jogos e mineração.
-   Estes são apenas os PADRÕES: o Admin pode criar, editar e
-   excluir tudo em tempo real (ver src/store/ConfigContext.tsx).
+   CATÁLOGO GLOBAL — itens da loja, rigs, jogos, banners e config.
+   PADRÕES iniciais: o Admin pode criar, editar e excluir tudo em
+   tempo real (ver src/store/ConfigContext.tsx) com persistência
+   no Firestore (config/global) e sincronização via onSnapshot.
    ============================================================ */
 
 export type Categoria =
@@ -151,17 +152,93 @@ export const RIGS_PADRAO: Rig[] = [
 ];
 
 /* ------------------- JOGOS DO CASSINO ------------------- */
-export const JOGOS_META: { id: string; nome: string; emoji: string; desc: string; tag: string }[] = [
-  { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular" },
-  { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia" },
-  { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no 7️⃣", tag: "Jackpot" },
-  { id: "dados", nome: "Dados", emoji: "🎲", desc: "Chance customizável", tag: "Clássico" },
-  { id: "roleta", nome: "Roleta", emoji: "🎡", desc: "Vermelho ou preto?", tag: "Clássico" },
-  { id: "moeda", nome: "Cara ou Coroa", emoji: "🪙", desc: "50/50 · 1.96x", tag: "Rápido" },
-  { id: "torre", nome: "Torre da Sorte", emoji: "🗼", desc: "8 andares de tensão", tag: "Novo" },
+export interface JogoConfig {
+  id: string;
+  nome: string;
+  emoji: string;
+  desc: string;
+  tag: string;
+  /** RTP — chance de retorno/vitória (0-1). Ex.: 0.97 = 97%. */
+  rtp: number;
+  /** URL de imagem de capa exibida no lobby. */
+  capa: string;
+  /** URL de GIF/animacao de destaque. */
+  gif: string;
+  ativo: boolean;
+}
+
+export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo">[] = [
+  { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular", rtp: 0.99 },
+  { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia", rtp: 0.97 },
+  { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no 7️⃣", tag: "Jackpot", rtp: 0.885 },
+  { id: "dados", nome: "Dados", emoji: "🎲", desc: "Chance customizável", tag: "Clássico", rtp: 0.98 },
+  { id: "roleta", nome: "Roleta", emoji: "🎡", desc: "Vermelho ou preto?", tag: "Clássico", rtp: 0.97 },
+  { id: "moeda", nome: "Cara ou Coroa", emoji: "🪙", desc: "50/50 · 1.96x", tag: "Rápido", rtp: 0.98 },
+  { id: "torre", nome: "Torre da Sorte", emoji: "🗼", desc: "8 andares de tensão", tag: "Novo", rtp: 0.967 },
 ];
 
-/* ------------------- CONFIG GLOBAL ------------------- */
+export function jogoPadrao(id: string): JogoConfig {
+  const meta = JOGOS_META.find((j) => j.id === id);
+  return {
+    id,
+    nome: meta?.nome || id,
+    emoji: meta?.emoji || "🎲",
+    desc: meta?.desc || "",
+    tag: meta?.tag || "Clássico",
+    rtp: meta?.rtp ?? 0.97,
+    capa: "",
+    gif: "",
+    ativo: true,
+  };
+}
+
+/* ------------------- BANNERS & AVISOS ------------------- */
+export interface Banner {
+  id: string;
+  titulo: string;
+  desc: string;
+  imagem: string;
+  ctaTexto: string;
+  ctaLink: string;
+  ativo: boolean;
+  /** Classes tailwind do gradiente de fundo (fallback sem imagem). */
+  cor: string;
+}
+
+export const BANNERS_PADRAO: Banner[] = [
+  {
+    id: "b1",
+    titulo: "🚀 Bem-vindo ao MAScrypto",
+    desc: "Ganhe MAS diários, monte sua fazenda e suba no ranking global da rede.",
+    imagem: "",
+    ctaTexto: "Começar a minerar",
+    ctaLink: "#/mineracao",
+    ativo: true,
+    cor: "from-fuchsia-600/50 via-indigo-800/40 to-slate-950",
+  },
+  {
+    id: "b2",
+    titulo: "🎰 Jackpot do Crash",
+    desc: "Multiplicadores de até 100x esperando por você. Saque antes da explosão!",
+    imagem: "",
+    ctaTexto: "Jogar Crash",
+    ctaLink: "#/cassino",
+    ativo: true,
+    cor: "from-amber-500/50 via-rose-800/40 to-slate-950",
+  },
+  {
+    id: "b3",
+    titulo: "🛒 MAS Market aberto",
+    desc: "Equipamentos aumentam seu H/s e roupas deixam seu avatar impecável.",
+    imagem: "",
+    ctaTexto: "Ver a loja",
+    ctaLink: "#/loja",
+    ativo: true,
+    cor: "from-emerald-600/50 via-teal-800/40 to-slate-950",
+  },
+];
+
+/* ------------------- CONFIG MINERAÇÃO ------------------- */
 export interface ConfigMineracao {
   cliqueAtivo: boolean;
   valorClique: number;
@@ -175,17 +252,23 @@ export interface ConfigMineracao {
   boostSegundos: number;
 }
 
+/* ------------------- CONFIG GLOBAL ------------------- */
 export interface ConfigGlobal {
   versao: number;
   itens: ItemLoja[];
   rigs: Rig[];
-  jogos: Record<string, boolean>;
+  jogos: Record<string, JogoConfig>;
+  banners: Banner[];
   mineracao: ConfigMineracao;
   lojaAtiva: boolean;
   cassinoAtivo: boolean;
   saquesAtivos: boolean;
   saqueMinimo: number;
   taxaConversao: number;
+  /** Saldo em MAS creditado UMA ÚNICA VEZ no cadastro. */
+  saldoInicial: number;
+  /** Cotação do MAS em Reais — 1 MAS = R$ cotacaoMAS. */
+  cotacaoMAS: number;
   xpPorMAS: number;
   xpPorAposta: number;
   anuncio: string;
@@ -193,10 +276,11 @@ export interface ConfigGlobal {
 }
 
 export const CONFIG_PADRAO: ConfigGlobal = {
-  versao: 3,
+  versao: 5,
   itens: ITENS_PADRAO,
   rigs: RIGS_PADRAO,
-  jogos: Object.fromEntries(JOGOS_META.map((j) => [j.id, true])),
+  jogos: Object.fromEntries(JOGOS_META.map((j) => [j.id, jogoPadrao(j.id)])),
+  banners: BANNERS_PADRAO,
   mineracao: {
     cliqueAtivo: true,
     valorClique: 0.75,
@@ -214,6 +298,8 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   saquesAtivos: true,
   saqueMinimo: 50,
   taxaConversao: 0.02,
+  saldoInicial: 10,
+  cotacaoMAS: 1.87,
   xpPorMAS: 0.2,
   xpPorAposta: 0.1,
   anuncio: "🎉 Bem-vindo à rede MAS! Recompensa diária liberada — colete todo dia e suba de nível.",

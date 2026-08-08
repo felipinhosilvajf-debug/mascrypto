@@ -42,6 +42,9 @@ export interface Transacao {
   moeda?: "MAS" | "BRL";
 }
 
+/** Saldo creditado UMA ÚNICA VEZ na criação do documento do usuário. */
+export const SALDO_INICIAL_MAS = 10;
+
 export interface UserData {
   uid: string;
   nome: string;
@@ -58,8 +61,10 @@ export interface UserData {
   tema: string;
   quarto: Record<string, { x: number; y: number }>;
   ultimaColeta: number;
-  ultimoLogin: string;
-  streak: number;
+  /** Data (YYYY-MM-DD) do último resgate diário — validado no servidor. */
+  lastDailyClaim: string;
+  /** Dias consecutivos de resgate. */
+  streakDays: number;
   totalMinerado: number;
   cliquesMinerados: number;
   apostas: number;
@@ -75,14 +80,14 @@ export interface UserData {
   atualizadoEm: number;
 }
 
-export function novoUsuario(uid: string, nome: string, email: string): UserData {
+export function novoUsuario(uid: string, nome: string, email: string, saldoInicial = SALDO_INICIAL_MAS): UserData {
   return {
     uid,
     nome,
     email,
     avatar: "🦊",
     status: "Patrulhando as Rigs",
-    saldo: 500,
+    saldo: saldoInicial,
     brl: 0,
     xp: 0,
     nivel: 1,
@@ -92,8 +97,8 @@ export function novoUsuario(uid: string, nome: string, email: string): UserData 
     tema: "neon",
     quarto: {},
     ultimaColeta: Date.now(),
-    ultimoLogin: "",
-    streak: 0,
+    lastDailyClaim: "",
+    streakDays: 0,
     totalMinerado: 0,
     cliquesMinerados: 0,
     apostas: 0,
@@ -116,10 +121,16 @@ const MIGRAR_ITENS: Record<string, string> = {
   relogio: "quadro",
 };
 
-/** Normaliza um documento vindo do banco/localStorage (migração segura). */
+/** Normaliza um documento vindo do Firestore (migração segura de versões antigas). */
 export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
   const base = novoUsuario(uid, bruto.nome || "Anônimo", bruto.email || "");
+  const legado = bruto as Partial<UserData> & { ultimoLogin?: string; streak?: number };
   const d: UserData = { ...base, ...bruto, uid } as UserData;
+  // migração dos campos antigos de recompensa diária
+  if (!d.lastDailyClaim && legado.ultimoLogin) d.lastDailyClaim = legado.ultimoLogin;
+  if (!d.streakDays && typeof legado.streak === "number") d.streakDays = legado.streak;
+  d.lastDailyClaim = d.lastDailyClaim || "";
+  d.streakDays = Math.max(0, Number(d.streakDays) || 0);
   d.itens = Array.isArray(d.itens)
     ? Array.from(new Set(d.itens.map((i) => MIGRAR_ITENS[i] || i)))
     : [];

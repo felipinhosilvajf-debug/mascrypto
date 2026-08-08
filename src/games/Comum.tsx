@@ -2,6 +2,23 @@ import { useState } from "react";
 import { Botao } from "../components/UI";
 import { fmtMAS, fmtNum } from "../lib/economia";
 import { useApp } from "../store/AppContext";
+import { useConfig } from "../store/ConfigContext";
+
+/**
+ * Aplica o RTP configurado pelo Admin a um jogo com pagamento fixo `mult`.
+ * P(vitória) = RTP / mult (limitado para nunca ser 0 ou 1 absoluto).
+ */
+export function resultadoComRtp(rtp: number | undefined, mult: number): boolean {
+  const r = typeof rtp === "number" && rtp > 0 && rtp <= 1 ? rtp : 0.97;
+  const p = Math.min(0.985, Math.max(0.015, r / mult));
+  return Math.random() < p;
+}
+
+/** Lê a config RTP de um jogo pelo id. */
+export function useRtp(id: string): number {
+  const { cfg } = useConfig();
+  return cfg.jogos[id]?.rtp ?? 0.97;
+}
 
 /** Estado de aposta compartilhado por todos os jogos (saldo vem do contexto central). */
 export function useAposta(inicial = 50) {

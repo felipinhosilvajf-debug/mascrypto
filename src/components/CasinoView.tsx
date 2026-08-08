@@ -3,7 +3,6 @@ import { Card, Selo, Vazio } from "./UI";
 import { CaraCoroa, Crash, Dados, Mines, Roleta, Slots, Torre } from "../games/Jogos";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { JOGOS_META } from "../lib/catalogo";
 import { fmtMAS, fmtNum } from "../lib/economia";
 
 const COMPONENTES: Record<string, React.ComponentType> = {
@@ -32,7 +31,7 @@ export default function CasinoView() {
   const [ativo, setAtivo] = useState<string | null>(null);
   const [, force] = useState(0);
 
-  // Reage às mudanças do Admin (localStorage/Firestore) sem precisar de F5
+  // Reage às mudanças do Admin (Firestore onSnapshot) sem precisar de F5
   useEffect(() => {
     const h = () => force((n) => n + 1);
     window.addEventListener("configUpdate", h);
@@ -43,7 +42,10 @@ export default function CasinoView() {
     };
   }, []);
 
-  const disponiveis = useMemo(() => JOGOS_META.filter((j) => jogoAtivo(j.id)), [jogoAtivo]);
+  const disponiveis = useMemo(
+    () => Object.values(cfg.jogos).filter((j) => j.ativo && cfg.cassinoAtivo),
+    [cfg.jogos, cfg.cassinoAtivo],
+  );
 
   /* Bloqueio real: se o jogo aberto for desativado, o acesso é encerrado. */
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function CasinoView() {
               🎰 MAS <span className="bg-gradient-to-r from-amber-300 to-fuchsia-400 bg-clip-text text-transparent">Casino Royale</span>
             </h2>
             <p className="text-sm text-slate-400">
-              {disponiveis.length} jogos ativos · RTP médio 97% · pagamentos instantâneos em MAS
+              {disponiveis.length} jogos ativos · RTP configurável pela administração · pagamentos instantâneos em MAS
             </p>
           </div>
           <div className="flex gap-2">
@@ -108,11 +110,23 @@ export default function CasinoView() {
                   : "border-white/10 bg-white/[0.04] hover:-translate-y-1.5 hover:border-fuchsia-400/40"
               }`}
             >
-              <div
-                className={`pointer-events-none absolute inset-0 bg-gradient-to-br opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
-                  BRILHOS[j.id] || "from-fuchsia-500/20 to-transparent"
-                }`}
-              />
+              {/* capa/imagem ou gif configurados pelo Admin */}
+              {j.gif || j.capa ? (
+                <div className="pointer-events-none absolute inset-0 opacity-25 transition-opacity duration-300 group-hover:opacity-45">
+                  <img
+                    src={j.gif || j.capa}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+                  />
+                </div>
+              ) : (
+                <div
+                  className={`pointer-events-none absolute inset-0 bg-gradient-to-br opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${
+                    BRILHOS[j.id] || "from-fuchsia-500/20 to-transparent"
+                  }`}
+                />
+              )}
               <span className="absolute right-2 top-2 rounded-full bg-black/50 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-amber-300">
                 {j.tag}
               </span>
@@ -121,6 +135,9 @@ export default function CasinoView() {
               </div>
               <p className="relative mt-2 text-sm font-black text-white">{j.nome}</p>
               <p className="relative text-[10px] leading-tight text-slate-400">{j.desc}</p>
+              <Selo tom="ciano" className="relative mt-1.5">
+                RTP {Math.round((j.rtp ?? 0.97) * 100)}%
+              </Selo>
             </button>
           ))}
         </div>
@@ -139,7 +156,7 @@ export default function CasinoView() {
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Selo tom="verde">Pagamento instantâneo</Selo>
               <Selo tom="ciano">Provably fair</Selo>
-              <Selo tom="ouro">RTP 97%</Selo>
+              <Selo tom="ouro">RTP dinâmico</Selo>
             </div>
           </Card>
         )

@@ -5,7 +5,7 @@ import { fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
 import { Barra, Botao, Card, Estat, Selo } from "./UI";
 
 export default function MiningView() {
-  const { data, atualizar, mover, hashrate, detalheHash, toast } = useApp();
+  const { data, atualizar, mover, minerarClique, hashrate, detalheHash, toast } = useApp();
   const { cfg } = useConfig();
   const [pendente, setPendente] = useState(0);
   const [pulso, setPulso] = useState(0);
@@ -67,13 +67,8 @@ export default function MiningView() {
     const base = mc.valorClique * (1 + (nivel - 1) * 0.05) * (boostAtivo ? mc.boostMult : 1);
     const v = Math.max(0, crit ? base * mc.multCritico : base);
 
-    atualizar((d) => ({
-      ...d,
-      saldo: d.saldo + v,
-      totalMinerado: d.totalMinerado + v,
-      cliquesMinerados: (d.cliquesMinerados || 0) + 1,
-      xp: d.xp + 1,
-    }));
+    // UI soma na hora; a gravação é agrupada e persistida no Firestore
+    minerarClique(v);
 
     const r = e.currentTarget.getBoundingClientRect();
     const id = agora + Math.random();

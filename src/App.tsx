@@ -10,6 +10,7 @@ import WalletView from "./components/WalletView";
 import VirtualRoomView from "./components/VirtualRoomView";
 import LojaView from "./components/LojaView";
 import AdminView from "./components/AdminView";
+import SuporteView from "./components/SuporteView";
 import { Botao, Card, Input, PillSaldo } from "./components/UI";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, progressoNivel } from "./lib/economia";
 
@@ -20,6 +21,7 @@ const NAV = [
   { id: "loja", nome: "Loja", emoji: "🛒" },
   { id: "quarto", nome: "Quarto", emoji: "🏠" },
   { id: "carteira", nome: "Carteira", emoji: "💱" },
+  { id: "suporte", nome: "Suporte", emoji: "🎧" },
   { id: "ranking", nome: "Ranking", emoji: "🏆" },
 ];
 
@@ -278,6 +280,7 @@ function Shell() {
         {pag === "loja" && <LojaView />}
         {pag === "quarto" && <VirtualRoomView />}
         {pag === "carteira" && <WalletView />}
+        {pag === "suporte" && <SuporteView />}
         {pag === "ranking" && <Ranking />}
         {pag === "admin" && ehAdmin && <AdminView />}
       </main>

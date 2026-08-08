@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Botao } from "../components/UI";
 import { fmtMAS, fmtNum as fmt } from "../lib/economia";
 import { useApp } from "../store/AppContext";
-import { ControleAposta, Painel, Resultado, useAposta } from "./Comum";
+import { ControleAposta, Painel, Resultado, resultadoComRtp, useAposta, useRtp } from "./Comum";
 
 /* ---------------- CARA OU COROA ---------------- */
 export function CaraCoroa() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("moeda");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [lado, setLado] = useState<"cara" | "coroa">("cara");
   const [girando, setGirando] = useState(false);
@@ -17,10 +18,10 @@ export function CaraCoroa() {
     setGirando(true);
     setRes(null);
     setTimeout(() => {
-      const r: "cara" | "coroa" = Math.random() < 0.5 ? "cara" : "coroa";
+      const ganhou = resultadoComRtp(rtp, 1.96);
+      const r: "cara" | "coroa" = ganhou ? lado : lado === "cara" ? "coroa" : "cara";
       setRes(r);
       setGirando(false);
-      const ganhou = r === lado;
       registrarAposta("Cara ou Coroa", aposta, ganhou ? aposta * 1.96 : 0);
       toast(ganhou ? `Deu ${r}! +${fmt(aposta * 0.96)} MAS 🎉` : `Deu ${r}. Você perdeu 😢`, ganhou ? "ok" : "erro");
     }, 1500);
@@ -76,6 +77,7 @@ export function CaraCoroa() {
 /* ---------------- DADOS ---------------- */
 export function Dados() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("dados");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [alvo, setAlvo] = useState(50);
   const [acima, setAcima] = useState(true);
@@ -93,10 +95,18 @@ export function Dados() {
       setNum(Math.random() * 100);
       if (++c > 15) {
         clearInterval(iv);
-        const r = Math.random() * 100;
+        // RTP configurado ajusta a probabilidade real (house edge dinâmica)
+        const pWin = Math.min(0.985, Math.max(0.015, (chance / 100) * ((rtp ?? 0.98) / 0.98)));
+        const ganhou = Math.random() < pWin;
+        const r = ganhou
+          ? acima
+            ? alvo + Math.random() * (100 - alvo)
+            : Math.random() * alvo
+          : acima
+            ? Math.random() * alvo
+            : alvo + Math.random() * (100 - alvo);
         setNum(r);
         setRolando(false);
-        const ganhou = acima ? r > alvo : r < alvo;
         registrarAposta("Dados", aposta, ganhou ? aposta * mult : 0);
         toast(
           ganhou ? `${r.toFixed(2)} — Ganhou ${fmt(aposta * mult - aposta)} MAS!` : `${r.toFixed(2)} — Perdeu.`,
@@ -175,6 +185,7 @@ const PAGA: Record<string, number> = { "🍒": 4, "🍋": 5, "🍊": 6, "🔔": 
 
 export function Slots() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("slots");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [rolos, setRolos] = useState(["🍒", "💎", "7️⃣"]);
   const [girando, setGirando] = useState(false);
@@ -184,6 +195,8 @@ export function Slots() {
     if (!valida || girando) return toast("Aposta inválida", "erro");
     setGirando(true);
     setMsg("");
+    // RTP ajusta os multiplicadores (RTP natural do caça-níqueis ≈ 0.885)
+    const fator = ((rtp ?? 0.885) / 0.885);
     let c = 0;
     const iv = setInterval(() => {
       setRolos([rnd(), rnd(), rnd()]);
@@ -193,8 +206,8 @@ export function Slots() {
         setRolos(f);
         setGirando(false);
         let ganho = 0;
-        if (f[0] === f[1] && f[1] === f[2]) ganho = aposta * PAGA[f[0]];
-        else if (f[0] === f[1] || f[1] === f[2] || f[0] === f[2]) ganho = aposta * 1.5;
+        if (f[0] === f[1] && f[1] === f[2]) ganho = aposta * PAGA[f[0]] * fator;
+        else if (f[0] === f[1] || f[1] === f[2] || f[0] === f[2]) ganho = aposta * 1.5 * fator;
         registrarAposta("Caça-níqueis", aposta, ganho);
         setMsg(ganho > 0 ? `GANHOU ${fmt(ganho)} MAS!` : "Tente novamente!");
         if (ganho > 0) toast(`🎰 +${fmt(ganho - aposta)} MAS`, "ok");
@@ -252,6 +265,7 @@ export function Slots() {
 /* ---------------- CRASH ---------------- */
 export function Crash() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("crash");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [mult, setMult] = useState(1);
   const [estado, setEstado] = useState<"parado" | "voando" | "crash">("parado");
@@ -294,7 +308,8 @@ export function Crash() {
 
   const iniciar = () => {
     if (!valida) return toast("Aposta inválida", "erro");
-    ref.current = { crash: Math.max(1.01, +(0.99 / (1 - Math.random())).toFixed(2)), sacou: false };
+    // RTP define o ponto de crash médio (0.99 original ≈ 99%)
+    ref.current = { crash: Math.max(1.01, +((rtp ?? 0.99) / (1 - Math.random())).toFixed(2)), sacou: false };
     setMult(1);
     setEstado("voando");
   };
@@ -373,6 +388,7 @@ export function Crash() {
 /* ---------------- MINES ---------------- */
 export function Mines() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("mines");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [bombas, setBombas] = useState(3);
   const [grid, setGrid] = useState<number[]>([]);
@@ -383,7 +399,7 @@ export function Mines() {
   const mult = (() => {
     let m = 1;
     for (let i = 0; i < abertos.length; i++) m *= (25 - i) / (25 - bombas - i);
-    return m * 0.97;
+    return m * ((rtp ?? 0.97) / 0.97);
   })();
 
   const iniciar = () => {
@@ -485,6 +501,7 @@ const VERM = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
 export function Roleta() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("roleta");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [tipo, setTipo] = useState<"vermelho" | "preto" | "par" | "impar" | "numero">("vermelho");
   const [numero, setNumero] = useState(7);
@@ -500,7 +517,36 @@ export function Roleta() {
       setRes(Math.floor(Math.random() * 37));
       if (++c > 25) {
         clearInterval(iv);
-        const r = NUM_ROLETA[Math.floor(Math.random() * 37)];
+        const mult = tipo === "numero" ? 36 : 2;
+        const ganhou = resultadoComRtp(rtp, mult);
+        const pretos = NUM_ROLETA.filter((n) => n !== 0 && !VERM.includes(n));
+        const pares = NUM_ROLETA.filter((n) => n !== 0 && n % 2 === 0);
+        const impares = NUM_ROLETA.filter((n) => n % 2 === 1);
+        let r: number;
+        if (ganhou) {
+          if (tipo === "numero") r = numero;
+          else if (tipo === "vermelho") r = VERM[Math.floor(Math.random() * VERM.length)];
+          else if (tipo === "preto") r = pretos[Math.floor(Math.random() * pretos.length)];
+          else if (tipo === "par") r = pares[Math.floor(Math.random() * pares.length)];
+          else r = impares[Math.floor(Math.random() * impares.length)];
+        } else {
+          if (tipo === "numero") {
+            const rest = NUM_ROLETA.filter((n) => n !== numero);
+            r = rest[Math.floor(Math.random() * rest.length)];
+          } else if (tipo === "vermelho") {
+            const perdedores = [...pretos, 0];
+            r = perdedores[Math.floor(Math.random() * perdedores.length)];
+          } else if (tipo === "preto") {
+            const perdedores = [...VERM, 0];
+            r = perdedores[Math.floor(Math.random() * perdedores.length)];
+          } else if (tipo === "par") {
+            const perdedores = [...impares, 0];
+            r = perdedores[Math.floor(Math.random() * perdedores.length)];
+          } else {
+            const perdedores = [...pares, 0];
+            r = perdedores[Math.floor(Math.random() * perdedores.length)];
+          }
+        }
         setRes(r);
         setGirando(false);
         setHist((h) => [r, ...h].slice(0, 12));
@@ -586,12 +632,14 @@ export function Roleta() {
 /* ---------------- TORRE ---------------- */
 export function Torre() {
   const { registrarAposta, toast } = useApp();
+  const rtp = useRtp("torre");
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [nivel, setNivel] = useState(0);
   const [jogando, setJogando] = useState(false);
   const [caminho, setCaminho] = useState<number[]>([]);
   const [erro, setErro] = useState<number | null>(null);
-  const mult = +(Math.pow(1.45, nivel) * 0.98).toFixed(2);
+  const fatorNivel = 1.45 * ((rtp ?? 0.967) / 0.967);
+  const mult = +(Math.pow(fatorNivel, nivel) * 0.98).toFixed(2);
 
   const iniciar = () => {
     if (!valida) return toast("Aposta inválida", "erro");
@@ -613,7 +661,7 @@ export function Torre() {
     const n = nivel + 1;
     setNivel(n);
     if (n === 8) {
-      registrarAposta("Torre", aposta, aposta * Math.pow(1.45, 8) * 0.98);
+      registrarAposta("Torre", aposta, aposta * Math.pow(fatorNivel, 8) * 0.98);
       toast("🏆 Topo da torre! Prêmio máximo!", "ok");
       setJogando(false);
     }
@@ -658,7 +706,7 @@ export function Torre() {
         {Array.from({ length: 8 }, (_, andar) => (
           <div key={andar} className="flex items-center gap-2">
             <span className="w-16 text-right text-xs text-slate-500">
-              {(Math.pow(1.45, andar + 1) * 0.98).toFixed(2)}x
+              {(Math.pow(fatorNivel, andar + 1) * 0.98).toFixed(2)}x
             </span>
             {[0, 1, 2].map((i) => {
               const passado = andar < nivel;

@@ -15,17 +15,50 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { collection, doc, getDocs, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  runTransaction,
+  setDoc,
+} from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
-import { CONQUISTAS, normalizar, novoUsuario, type Transacao, type UserData } from "../lib/types";
+import {
+  CONQUISTAS,
+  SALDO_INICIAL_MAS,
+  normalizar,
+  novoUsuario,
+  type Transacao,
+  type UserData,
+} from "../lib/types";
 import { nivelPorXp } from "../lib/economia";
 import { infoCategoria, type ConfigGlobal, type ItemLoja } from "../lib/catalogo";
 import { useConfig } from "./ConfigContext";
 
-/* Código de desbloqueio administrativo (demonstração — em produção use
-   custom claims do Firebase Auth + regras de segurança no servidor). */
-export const CODIGO_ADMIN = "mas3510";
-const ADMIN_EMAILS = ["felipe.apsilva@outlook.com"];
+/* ============================================================
+   FONTE ÚNICA DA VERDADE: Firestore → users/{uid}
+   Nenhum saldo/estado de usuário é lido ou gravado em localStorage.
+   Toda mutação passa por uma transação atômica e a UI é atualizada
+   pelo onSnapshot + evento global `balanceUpdate`.
+   ============================================================ */
+export const COLECAO = "users";
+const COLECAO_LEGADA = "usuarios";
+export const refUsuario = (uid: string) => doc(db, COLECAO, uid);
+
+export const CODIGO_ADMIN = "MAS-ADMIN-2026";
+const ADMIN_EMAILS = ["admin@mascrypto.com"];
+
+/** Dispara o evento global de atualização de saldo/UI. */
+export function emitirBalanceUpdate() {
+  window.dispatchEvent(new Event("balanceUpdate"));
+}
+
+export const hojeISO = () => new Date().toISOString().slice(0, 10);
+const ontemISO = () => new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+export const PREMIOS_DIARIOS = [150, 300, 500, 800, 1200, 2000, 5000];
 
 interface Toast {
   id: number;
@@ -33,14 +66,12 @@ interface Toast {
   tipo: "ok" | "erro" | "info";
 }
 
-/** Payload de qualquer movimentação financeira do app. */
 export interface Movimento {
   mas?: number;
   brl?: number;
   titulo: string;
   detalhe?: string;
   xp?: number;
-  origem?: string;
 }
 
 interface Ctx {
@@ -54,10 +85,13 @@ interface Ctx {
   entrar: (email: string, senha: string) => Promise<void>;
   registrar: (nome: string, email: string, senha: string) => Promise<void>;
   sair: () => Promise<void>;
+  /** Mutação atômica no Firestore (com atualização otimista da UI). */
   atualizar: (fn: (d: UserData) => UserData) => void;
-  /** ÚNICA porta de entrada para alterar saldos. Dispara `balanceUpdate`. */
+  /** ÚNICA porta de entrada para saldos MAS/R$. */
   mover: (m: Movimento) => boolean;
   registrarAposta: (jogo: string, aposta: number, ganho: number) => void;
+  minerarClique: (mas: number) => void;
+  coletarDiario: () => Promise<void>;
   comprarItem: (item: ItemLoja) => boolean;
   equipar: (itemId: string) => void;
   desequipar: (slot: string) => void;
@@ -71,14 +105,13 @@ interface Ctx {
   listarUsuarios: () => Promise<UserData[]>;
   adminSalvarUsuario: (u: UserData) => Promise<void>;
   adminExcluirUsuario: (uid: string) => Promise<void>;
+  creditarUsuario: (uid: string, mas: number, brl: number, motivo: string) => Promise<void>;
 }
 
 const AppCtx = createContext<Ctx>(null as unknown as Ctx);
 export const useApp = () => useContext(AppCtx);
 
-const LS = (uid: string) => `mascrypto:user:${uid}`;
-
-/** Hashrate total — FONTE ÚNICA (rigs + itens equipados + bônus de nível/pets). */
+/** Hashrate total — FONTE ÚNICA (rigs + itens equipados + bônus). */
 export function calcularHash(d: UserData | null, cfg: ConfigGlobal) {
   if (!d) return { rigs: 0, itens: 0, bonusPct: 0, total: 0 };
   let rigs = 0;
@@ -95,6 +128,60 @@ export function calcularHash(d: UserData | null, cfg: ConfigGlobal) {
   return { rigs, itens, bonusPct, total };
 }
 
+/** Pós-processamento comum a cliente e servidor: nível ← XP, conquistas, timestamp. */
+function posProcessar(d: UserData): UserData {
+  const n: UserData = {
+    ...d,
+    saldo: Math.max(0, Number(d.saldo) || 0),
+    brl: Math.max(0, Number(d.brl) || 0),
+    xp: Math.max(0, Math.floor(Number(d.xp) || 0)),
+    atualizadoEm: Date.now(),
+  };
+  n.nivel = nivelPorXp(n.xp);
+  return checarConquistas(n);
+}
+
+/**
+ * Cria o documento do usuário SE ele ainda não existir.
+ * O saldo inicial é definido pelo Admin (config/global → saldoInicial,
+ * padrão 10 MAS) e aplicado UMA ÚNICA VEZ, aqui.
+ * Recarregar a página, relogar ou limpar o cache NUNCA recria o documento.
+ */
+export async function createUserDocument(uid: string, nome: string, email: string): Promise<UserData> {
+  const ref = refUsuario(uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return normalizar(snap.data() as Partial<UserData>, uid);
+
+  // Migração transparente da coleção antiga (não recria saldo inicial)
+  try {
+    const antigo = await getDoc(doc(db, COLECAO_LEGADA, uid));
+    if (antigo.exists()) {
+      const migrado = normalizar(antigo.data() as Partial<UserData>, uid);
+      await setDoc(ref, migrado);
+      return migrado;
+    }
+  } catch {
+    /* sem permissão/rede: segue para criação nova */
+  }
+
+  // Consulta o saldo inicial configurado pelo Admin no Firestore (autoritativo)
+  let saldoInicial = SALDO_INICIAL_MAS;
+  try {
+    const c = await getDoc(doc(db, "config", "global"));
+    if (c.exists()) {
+      const v = (c.data() as { saldoInicial?: unknown }).saldoInicial;
+      if (typeof v === "number" && v >= 0) saldoInicial = v;
+    }
+  } catch {
+    /* sem acesso à config: usa o padrão */
+  }
+
+  const novo = novoUsuario(uid, nome, email, saldoInicial);
+  novo.admin = ADMIN_EMAILS.includes(email.toLowerCase());
+  await setDoc(ref, novo);
+  return novo;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { cfg } = useConfig();
   const [user, setUser] = useState<User | null>(null);
@@ -102,14 +189,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [carregando, setCarregando] = useState(true);
   const [online, setOnline] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [precoMAS, setPrecoMAS] = useState(1.87);
+  /* Cotação oficial vem da config do Admin (config/global) — atualiza em
+     tempo real via onSnapshot no ConfigContext. O histórico alimenta o gráfico. */
+  const precoMAS = cfg.cotacaoMAS;
   const [historicoPreco, setHistoricoPreco] = useState<number[]>(() =>
-    Array.from({ length: 60 }, (_, i) => 1.87 + Math.sin(i / 5) * 0.08 + Math.random() * 0.05),
+    Array.from({ length: 60 }, (_, i) => cfg.cotacaoMAS + Math.sin(i / 5) * 0.06 + (i % 7) * 0.012),
   );
-  const dirty = useRef(false);
-  const revLocal = useRef(0);
+
+  useEffect(() => {
+    setHistoricoPreco((h) => [...h.slice(-79), cfg.cotacaoMAS]);
+  }, [cfg.cotacaoMAS]);
+
   const dataRef = useRef<UserData | null>(null);
   dataRef.current = data;
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
+  /** Fila serial de transações — evita corridas entre operações simultâneas. */
+  const fila = useRef<Promise<unknown>>(Promise.resolve());
+  const pendentes = useRef(0);
+  /** Acúmulo de cliques de mineração (evita 1 escrita por clique). */
+  const bufferClique = useRef({ mas: 0, cliques: 0, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 });
 
   const toast = useCallback((msg: string, tipo: Toast["tipo"] = "info") => {
     const id = Date.now() + Math.random();
@@ -117,126 +216,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3400);
   }, []);
 
-  /* ---------------- AUTENTICAÇÃO + CARGA ---------------- */
+  /* ---------------- AUTENTICAÇÃO ---------------- */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (!u) {
         setData(null);
         setCarregando(false);
+        emitirBalanceUpdate();
         return;
       }
-      // cache novo ou, se não existir, cache da versão anterior (migração)
-      const local = localStorage.getItem(LS(u.uid)) || localStorage.getItem(`mascrypto:${u.uid}`);
-      if (local) {
-        try {
-          const d = normalizar(JSON.parse(local), u.uid);
-          revLocal.current = d.adminRev || 0;
-          setData(d);
-          localStorage.setItem(LS(u.uid), JSON.stringify(d));
-        } catch {
-          /* ignora cache corrompido */
-        }
+      try {
+        // Garante a existência do documento (saldo inicial aplicado 1x)
+        const d = await createUserDocument(u.uid, u.displayName || "Anônimo", u.email || "");
+        setData(d);
+        setOnline(true);
+      } catch {
+        setOnline(false);
+      } finally {
+        setCarregando(false);
+        emitirBalanceUpdate();
       }
-      setCarregando(false);
     });
     return unsub;
   }, []);
 
-  /* Firestore como fonte oficial: escuta o próprio documento.
-     Alterações do Admin (adminRev++) são adotadas na hora. */
+  /* ------- ESCUTA EM TEMPO REAL: users/{uid} é a verdade -------
+     Reflete instantaneamente qualquer alteração — inclusive as feitas
+     pelo Painel Admin — no header, carteira, dashboard, quarto etc. */
   useEffect(() => {
     if (!user) return;
-    const ref = doc(db, "usuarios", user.uid);
     const unsub = onSnapshot(
-      ref,
+      refUsuario(user.uid),
+      { includeMetadataChanges: false },
       (snap) => {
         setOnline(true);
-        if (!snap.exists()) {
-          const base = normalizar(
-            { nome: user.displayName || "Anônimo", email: user.email || "" },
-            user.uid,
-          );
-          setData((atual) => atual ?? base);
-          setDoc(ref, dataRef.current ?? base, { merge: true }).catch(() => {});
-          return;
-        }
+        if (!snap.exists()) return;
+        // Enquanto houver escrita local pendente, a transação é a autoridade
+        if (pendentes.current > 0) return;
         const remoto = normalizar(snap.data() as Partial<UserData>, user.uid);
         setData((atual) => {
-          if (!atual) return remoto;
-          // Admin mexeu nesta conta → adota o remoto imediatamente
-          if ((remoto.adminRev || 0) > revLocal.current) {
-            revLocal.current = remoto.adminRev || 0;
+          if (atual && atual.atualizadoEm === remoto.atualizadoEm && atual.saldo === remoto.saldo)
+            return atual;
+          if (atual && (remoto.adminRev || 0) > (atual.adminRev || 0))
             toast("⚡ Sua conta foi atualizada pela administração", "info");
-            queueMicrotask(() => window.dispatchEvent(new Event("balanceUpdate")));
-            return remoto;
-          }
-          // Sessão mais recente em outro dispositivo
-          if ((remoto.atualizadoEm || 0) > (atual.atualizadoEm || 0) + 15000) return remoto;
-          return atual;
+          return remoto;
         });
+        emitirBalanceUpdate();
       },
       () => setOnline(false),
     );
     return unsub;
   }, [user, toast]);
 
-  /* ---------------- PERSISTÊNCIA ---------------- */
-  useEffect(() => {
-    if (!data) return;
-    localStorage.setItem(LS(data.uid), JSON.stringify(data));
-    dirty.current = true;
-  }, [data]);
+  /* ============================================================
+     MUTAÇÃO CENTRAL — transação atômica em users/{uid}
+     1) aplica otimista na UI  2) grava atômico  3) confirma
+     ============================================================ */
+  const atualizar = useCallback(
+    (fn: (d: UserData) => UserData) => {
+      const u = userRef.current;
+      if (!u) return;
 
-  useEffect(() => {
-    const i = setInterval(() => {
-      const d = dataRef.current;
-      if (!dirty.current || !d) return;
-      dirty.current = false;
-      setDoc(doc(db, "usuarios", d.uid), d, { merge: true })
-        .then(() => setOnline(true))
-        .catch(() => setOnline(false));
-    }, 5000);
-    return () => clearInterval(i);
-  }, []);
+      // 1) atualização otimista (UI instantânea)
+      setData((d) => (d ? posProcessar(fn(d)) : d));
+      emitirBalanceUpdate();
 
-  /* ---------------- COTAÇÃO SIMULADA ---------------- */
-  useEffect(() => {
-    const i = setInterval(() => {
-      setPrecoMAS((p) => {
-        const novo = Math.max(0.4, p * (1 + (Math.random() - 0.487) * 0.022));
-        setHistoricoPreco((h) => [...h.slice(-79), novo]);
-        return novo;
-      });
-    }, 2000);
-    return () => clearInterval(i);
-  }, []);
+      // 2) transação serializada
+      pendentes.current++;
+      fila.current = fila.current
+        .then(() =>
+          runTransaction(db, async (tx) => {
+            const ref = refUsuario(u.uid);
+            const snap = await tx.get(ref);
+            const base = snap.exists()
+              ? normalizar(snap.data() as Partial<UserData>, u.uid)
+              : novoUsuario(u.uid, u.displayName || "Anônimo", u.email || "");
+            const novo = posProcessar(fn(base));
+            tx.set(ref, novo);
+            return novo;
+          }),
+        )
+        .then((novo) => {
+          // 3) o resultado do servidor é a verdade final
+          setData(novo as UserData);
+          setOnline(true);
+        })
+        .catch(() => {
+          setOnline(false);
+          toast("Sem conexão com o banco — tentando novamente…", "erro");
+        })
+        .finally(() => {
+          pendentes.current = Math.max(0, pendentes.current - 1);
+          emitirBalanceUpdate();
+        });
+    },
+    [toast],
+  );
 
-  /* ---------------- MUTAÇÃO CENTRAL ---------------- */
-  const atualizar = useCallback((fn: (d: UserData) => UserData) => {
-    setData((d) => {
-      if (!d) return d;
-      const novo = pos(fn(d));
-      queueMicrotask(() => window.dispatchEvent(new Event("balanceUpdate")));
-      return novo;
-    });
-  }, []);
-
-  /** Pós-processamento: nível derivado do XP + conquistas + timestamp. */
-  const pos = (d: UserData): UserData => {
-    let n: UserData = {
-      ...d,
-      saldo: Math.max(0, Number(d.saldo) || 0),
-      brl: Math.max(0, Number(d.brl) || 0),
-      xp: Math.max(0, Math.floor(Number(d.xp) || 0)),
-      atualizadoEm: Date.now(),
-    };
-    n.nivel = nivelPorXp(n.xp);
-    n = checarConquistas(n);
-    return n;
-  };
-
-  /** ÚNICA porta de entrada para dinheiro. Retorna false se saldo insuficiente. */
+  /** ÚNICA porta de entrada para dinheiro (MAS e R$). */
   const mover = useCallback(
     (m: Movimento): boolean => {
       const d = dataRef.current;
@@ -248,11 +326,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
       atualizar((u) => {
+        // revalidação no servidor: nunca deixa o saldo negativo
+        if (u.saldo + mas < -1e-9 || u.brl + brl < -1e-9) return u;
         const hist: Transacao[] = [];
-        if (mas !== 0)
-          hist.push({ t: m.titulo, v: mas, d: m.detalhe || "", ts: Date.now(), moeda: "MAS" });
-        if (brl !== 0)
-          hist.push({ t: m.titulo, v: brl, d: m.detalhe || "", ts: Date.now(), moeda: "BRL" });
+        if (mas !== 0) hist.push({ t: m.titulo, v: mas, d: m.detalhe || "", ts: Date.now(), moeda: "MAS" });
+        if (brl !== 0) hist.push({ t: m.titulo, v: brl, d: m.detalhe || "", ts: Date.now(), moeda: "BRL" });
         return {
           ...u,
           saldo: u.saldo + mas,
@@ -268,6 +346,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const detalheHash = useMemo(() => calcularHash(data, cfg), [data, cfg]);
 
+  /* ---------------- CASSINO ---------------- */
   const registrarAposta = useCallback(
     (jogo: string, aposta: number, ganho: number) => {
       const lucro = ganho - aposta;
@@ -293,6 +372,93 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [atualizar, cfg.xpPorAposta],
   );
 
+  /* ---------------- MINERAÇÃO POR CLIQUE ----------------
+     UI soma na hora; a gravação é agrupada (1 transação por rajada). */
+  const minerarClique = useCallback(
+    (mas: number) => {
+      const b = bufferClique.current;
+      b.mas += mas;
+      b.cliques += 1;
+
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              saldo: d.saldo + mas,
+              totalMinerado: d.totalMinerado + mas,
+              cliquesMinerados: (d.cliquesMinerados || 0) + 1,
+              xp: d.xp + 1,
+            }
+          : d,
+      );
+      emitirBalanceUpdate();
+
+      if (b.timer) clearTimeout(b.timer as ReturnType<typeof setTimeout>);
+      b.timer = setTimeout(() => {
+        const total = b.mas;
+        const n = b.cliques;
+        b.mas = 0;
+        b.cliques = 0;
+        b.timer = 0;
+        if (total <= 0) return;
+        atualizar((d) => ({
+          ...d,
+          saldo: d.saldo + total,
+          totalMinerado: d.totalMinerado + total,
+          cliquesMinerados: (d.cliquesMinerados || 0) + n,
+          xp: d.xp + n,
+        }));
+      }, 900);
+    },
+    [atualizar],
+  );
+
+  /* ---------------- RECOMPENSA DIÁRIA (validada no servidor) ---------------- */
+  const coletarDiario = useCallback(async () => {
+    const u = userRef.current;
+    if (!u) return;
+    pendentes.current++;
+    try {
+      const resultado = await runTransaction(db, async (tx) => {
+        const ref = refUsuario(u.uid);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("sem documento");
+        const base = normalizar(snap.data() as Partial<UserData>, u.uid);
+        // guarda anti-duplicação: o servidor decide se já resgatou hoje
+        if (base.lastDailyClaim === hojeISO()) return { ja: true, premio: 0, streak: base.streakDays };
+        const streak = base.lastDailyClaim === ontemISO() ? Math.min(7, base.streakDays + 1) : 1;
+        const premio = PREMIOS_DIARIOS[streak - 1];
+        const novo = posProcessar({
+          ...base,
+          saldo: base.saldo + premio,
+          streakDays: streak,
+          lastDailyClaim: hojeISO(),
+          xp: base.xp + 50,
+          historico: [
+            { t: "Recompensa diária", v: premio, d: `Dia ${streak}`, ts: Date.now(), moeda: "MAS" as const },
+            ...base.historico,
+          ].slice(0, 60),
+        });
+        tx.set(ref, novo);
+        return { ja: false, premio, streak, novo };
+      });
+
+      if (resultado.ja) {
+        toast("Você já resgatou a recompensa de hoje 😉", "info");
+      } else {
+        if (resultado.novo) setData(resultado.novo);
+        toast(`Recompensa diária: +${resultado.premio} MAS 🎁 (dia ${resultado.streak})`, "ok");
+      }
+      setOnline(true);
+    } catch {
+      setOnline(false);
+      toast("Não foi possível resgatar agora. Verifique sua conexão.", "erro");
+    } finally {
+      pendentes.current = Math.max(0, pendentes.current - 1);
+      emitirBalanceUpdate();
+    }
+  }, [toast]);
+
   /* ---------------- LOJA / INVENTÁRIO ---------------- */
   const comprarItem = useCallback(
     (item: ItemLoja): boolean => {
@@ -306,16 +472,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (item.estoque === 0) return toast("Item esgotado", "erro"), false;
       if (d.saldo < item.preco) return toast("Saldo em MAS insuficiente", "erro"), false;
 
-      atualizar((u) => ({
-        ...u,
-        saldo: u.saldo - item.preco,
-        itens: [...u.itens, item.id],
-        xp: u.xp + 15,
-        historico: [
-          { t: "Loja · Compra", v: -item.preco, d: item.nome, ts: Date.now(), moeda: "MAS" as const },
-          ...u.historico,
-        ].slice(0, 60),
-      }));
+      atualizar((u) => {
+        // revalidação atômica no servidor
+        if (u.itens.includes(item.id) || u.saldo < item.preco || nivelPorXp(u.xp) < item.nivelMin) return u;
+        return {
+          ...u,
+          saldo: u.saldo - item.preco,
+          itens: [...u.itens, item.id],
+          xp: u.xp + 15,
+          historico: [
+            { t: "Loja · Compra", v: -item.preco, d: item.nome, ts: Date.now(), moeda: "MAS" as const },
+            ...u.historico,
+          ].slice(0, 60),
+        };
+      });
       toast(`${item.nome} adicionado ao inventário!`, "ok");
       return true;
     },
@@ -331,7 +501,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (nivelPorXp(d.xp) < item.nivelMin) return toast(`Requer nível ${item.nivelMin}`, "erro");
       const slot = item.slot || infoCategoria(item.categoria).slot;
       if (!slot) return toast("Este item é decorativo — posicione-o no quarto", "info");
-      atualizar((u) => ({ ...u, equipados: { ...u.equipados, [slot]: itemId } }));
+      atualizar((u) =>
+        u.itens.includes(itemId) ? { ...u, equipados: { ...u.equipados, [slot]: itemId } } : u,
+      );
       toast(`${item.nome} equipado`, "ok");
     },
     [atualizar, cfg.itens, toast],
@@ -352,7 +524,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (itemId: string, x: number, y: number) => {
       const d = dataRef.current;
       if (!d || !d.itens.includes(itemId)) return;
-      atualizar((u) => ({ ...u, quarto: { ...u.quarto, [itemId]: { x, y } } }));
+      atualizar((u) => (u.itens.includes(itemId) ? { ...u, quarto: { ...u.quarto, [itemId]: { x, y } } } : u));
     },
     [atualizar],
   );
@@ -376,16 +548,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const registrar = async (nome: string, email: string, senha: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, senha);
     await updateProfile(cred.user, { displayName: nome });
-    const d = novoUsuario(cred.user.uid, nome, email);
-    d.admin = ADMIN_EMAILS.includes(email.toLowerCase());
-    localStorage.setItem(LS(cred.user.uid), JSON.stringify(d));
+    const d = await createUserDocument(cred.user.uid, nome, email);
     setData(d);
-    setDoc(doc(db, "usuarios", cred.user.uid), d).catch(() => setOnline(false));
+    emitirBalanceUpdate();
   };
 
   const sair = async () => {
-    const d = dataRef.current;
-    if (d) await setDoc(doc(db, "usuarios", d.uid), d, { merge: true }).catch(() => {});
     await signOut(auth);
   };
 
@@ -403,7 +571,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const listarUsuarios = useCallback(async (): Promise<UserData[]> => {
     try {
-      const snap = await getDocs(collection(db, "usuarios"));
+      const snap = await getDocs(collection(db, COLECAO));
       return snap.docs.map((s) => normalizar(s.data() as Partial<UserData>, s.id));
     } catch {
       const d = dataRef.current;
@@ -411,27 +579,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const adminSalvarUsuario = useCallback(
-    async (u: UserData) => {
-      const alvo = normalizar({ ...u, adminRev: (u.adminRev || 0) + 1 }, u.uid);
+  /** Admin grava direto no Firestore → o onSnapshot do usuário reflete na hora. */
+  const adminSalvarUsuario = useCallback(async (u: UserData) => {
+    await runTransaction(db, async (tx) => {
+      const ref = refUsuario(u.uid);
+      const snap = await tx.get(ref);
+      const atualRev = snap.exists() ? ((snap.data() as UserData).adminRev || 0) : 0;
+      const alvo = normalizar({ ...u, adminRev: atualRev + 1 }, u.uid);
       alvo.atualizadoEm = Date.now();
-      await setDoc(doc(db, "usuarios", u.uid), alvo, { merge: true }).catch(() => {
-        throw new Error("Sem conexão com o banco");
+      tx.set(ref, alvo);
+    });
+    emitirBalanceUpdate();
+  }, []);
+
+  const adminExcluirUsuario = useCallback(async (uid: string) => {
+    await deleteDoc(refUsuario(uid));
+  }, []);
+
+  /** Ação rápida do suporte: credita MAS e/ou R$ direto na conta do usuário. */
+  const creditarUsuario = useCallback(
+    async (uid: string, mas: number, brl: number, motivo: string) => {
+      await runTransaction(db, async (tx) => {
+        const ref = refUsuario(uid);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("Usuário sem documento");
+        const base = normalizar(snap.data() as Partial<UserData>, uid);
+        const hist: Transacao[] = [];
+        if (mas) hist.push({ t: "Suporte · Crédito", v: mas, d: motivo, ts: Date.now(), moeda: "MAS" });
+        if (brl) hist.push({ t: "Suporte · Crédito", v: brl, d: motivo, ts: Date.now(), moeda: "BRL" });
+        const novo = posProcessar({
+          ...base,
+          saldo: base.saldo + (mas || 0),
+          brl: base.brl + (brl || 0),
+          adminRev: (base.adminRev || 0) + 1,
+          historico: [...hist, ...base.historico].slice(0, 60),
+        });
+        tx.set(ref, novo);
       });
-      // se o admin editou a própria conta, reflete na hora
-      if (dataRef.current?.uid === u.uid) {
-        revLocal.current = alvo.adminRev;
-        setData(alvo);
-        window.dispatchEvent(new Event("balanceUpdate"));
-      }
+      emitirBalanceUpdate();
     },
     [],
   );
-
-  const adminExcluirUsuario = useCallback(async (uid: string) => {
-    await deleteDoc(doc(db, "usuarios", uid));
-    localStorage.removeItem(LS(uid));
-  }, []);
 
   return (
     <AppCtx.Provider
@@ -449,6 +637,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         atualizar,
         mover,
         registrarAposta,
+        minerarClique,
+        coletarDiario,
         comprarItem,
         equipar,
         desequipar,
@@ -462,6 +652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listarUsuarios,
         adminSalvarUsuario,
         adminExcluirUsuario,
+        creditarUsuario,
       }}
     >
       {children}
@@ -484,7 +675,7 @@ function checarConquistas(d: UserData): UserData {
   check("baleia", d.saldo >= 100000);
   check("sortudo", d.vitorias >= 10);
   check("highroller", d.maiorGanho >= 10000);
-  check("fiel", d.streak >= 7);
+  check("fiel", d.streakDays >= 7);
   check("decorador", d.itens.length >= 5);
   check("fashion", roupas >= 4);
   check("clicker", (d.cliquesMinerados || 0) >= 1000);
@@ -492,7 +683,7 @@ function checarConquistas(d: UserData): UserData {
   return { ...d, conquistas: [...d.conquistas, ...novas], saldo: d.saldo + premio };
 }
 
-/** Hook utilitário: força re-render em qualquer alteração de saldo. */
+/** Hook utilitário: re-renderiza o componente a cada `balanceUpdate`. */
 export function useSaldoSync() {
   const { data } = useApp();
   const [, tick] = useState(0);

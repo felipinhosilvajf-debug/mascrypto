@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { onSnapshot, collection } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import {
@@ -6,11 +8,14 @@ import {
   GRUPOS_ADMIN,
   JOGOS_META,
   infoCategoria,
+  type Banner,
   type Categoria,
   type ItemLoja,
+  type JogoConfig,
   type Rig,
 } from "../lib/catalogo";
 import { SLOTS, type UserData } from "../lib/types";
+import { STATUS_TICKET, responderTicket, setStatusTicket, type Ticket } from "../lib/tickets";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, xpParaNivel } from "../lib/economia";
 import {
   Abas,
@@ -32,7 +37,9 @@ type AbaAdmin =
   | "operacional"
   | "contas"
   | "loja"
-  | "cassino"
+  | "jogos"
+  | "banners"
+  | "tickets"
   | "mineracao"
   | "xp"
   | "config";
@@ -41,7 +48,9 @@ const ABAS = [
   { id: "operacional" as const, nome: "Operacional", emoji: "🎫" },
   { id: "contas" as const, nome: "Contas", emoji: "👥" },
   { id: "loja" as const, nome: "Itens da Loja", emoji: "🛒" },
-  { id: "cassino" as const, nome: "Cassino", emoji: "🎰" },
+  { id: "jogos" as const, nome: "Gerenciar Jogos", emoji: "🎰" },
+  { id: "banners" as const, nome: "Banners & Avisos", emoji: "📣" },
+  { id: "tickets" as const, nome: "Tickets / Suporte", emoji: "🎧" },
   { id: "mineracao" as const, nome: "Mineração", emoji: "⛏️" },
   { id: "xp" as const, nome: "XP e Níveis", emoji: "⭐" },
   { id: "config" as const, nome: "Configurações", emoji: "⚙️" },
@@ -58,7 +67,7 @@ export default function AdminView() {
           <div>
             <h2 className="text-2xl font-black text-white">🛡️ Painel Administrativo</h2>
             <p className="text-sm text-slate-400">
-              Controle total da rede MAS — alterações refletem em todos os usuários em tempo real.
+              Regras e configurações centralizadas — persistidas no Firestore e refletidas em tempo real para todos os usuários.
             </p>
           </div>
           <Selo tom={configOnline ? "verde" : "ouro"}>
@@ -72,7 +81,9 @@ export default function AdminView() {
       {aba === "operacional" && <Operacional />}
       {aba === "contas" && <Contas />}
       {aba === "loja" && <LojaAdmin />}
-      {aba === "cassino" && <CassinoAdmin />}
+      {aba === "jogos" && <JogosAdmin />}
+      {aba === "banners" && <BannersAdmin />}
+      {aba === "tickets" && <TicketsAdmin />}
       {aba === "mineracao" && <MineracaoAdmin />}
       {aba === "xp" && <XpAdmin />}
       {aba === "config" && <ConfigAdmin />}
@@ -81,16 +92,8 @@ export default function AdminView() {
 }
 
 /* ========================================================================
-   ABA OPERACIONAL — Tickets + Saques + Pendências juntos
+   ABA OPERACIONAL — Saques + Pendências (tickets agora na aba própria)
    ======================================================================== */
-interface Ticket {
-  id: string;
-  usuario: string;
-  assunto: string;
-  msg: string;
-  status: "aberto" | "resolvido";
-  ts: number;
-}
 interface Saque {
   id: string;
   usuario: string;
@@ -99,7 +102,6 @@ interface Saque {
   status: "pendente" | "pago" | "recusado";
   ts: number;
 }
-const LS_TICKETS = "mascrypto:admin:tickets";
 const LS_SAQUES = "mascrypto:admin:saques";
 
 function ler<T>(k: string, padrao: T): T {
@@ -112,159 +114,73 @@ function ler<T>(k: string, padrao: T): T {
 
 function Operacional() {
   const { toast } = useApp();
-  const [tickets, setTickets] = useState<Ticket[]>(() =>
-    ler<Ticket[]>(LS_TICKETS, [
-      { id: "t1", usuario: "cryptolud@mail.com", assunto: "Saque não caiu", msg: "Solicitei há 2 dias.", status: "aberto", ts: Date.now() - 8e7 },
-      { id: "t2", usuario: "minerkin@mail.com", assunto: "Item sumiu", msg: "Comprei a RTX 4090 e não apareceu.", status: "aberto", ts: Date.now() - 3e7 },
-    ]),
-  );
   const [saques, setSaques] = useState<Saque[]>(() =>
     ler<Saque[]>(LS_SAQUES, [
       { id: "s1", usuario: "cryptolud@mail.com", valor: 250, chave: "cpf 123.***.**-09", status: "pendente", ts: Date.now() - 9e7 },
       { id: "s2", usuario: "luacheia@mail.com", valor: 80.5, chave: "email lua@mail.com", status: "pendente", ts: Date.now() - 2e7 },
     ]),
   );
-  const [sub, setSub] = useState<"tickets" | "saques" | "pendencias">("tickets");
 
-  useEffect(() => localStorage.setItem(LS_TICKETS, JSON.stringify(tickets)), [tickets]);
   useEffect(() => localStorage.setItem(LS_SAQUES, JSON.stringify(saques)), [saques]);
 
-  const abertos = tickets.filter((t) => t.status === "aberto").length;
   const pendentes = saques.filter((s) => s.status === "pendente");
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Estat emoji="🎫" titulo="Tickets abertos" valor={String(abertos)} cor="text-amber-300" />
         <Estat emoji="💰" titulo="Saques pendentes" valor={String(pendentes.length)} cor="text-rose-300" />
-        <Estat
-          emoji="⏳"
-          titulo="Total a liberar"
-          valor={fmtBRL(pendentes.reduce((a, b) => a + b.valor, 0))}
-          cor="text-sky-300"
-        />
+        <Estat emoji="⏳" titulo="Total a liberar" valor={fmtBRL(pendentes.reduce((a, b) => a + b.valor, 0))} cor="text-sky-300" />
+        <Estat emoji="🎧" titulo="Tickets abertos" valor="ver aba Suporte" cor="text-amber-300" />
       </div>
 
-      <Abas
-        abas={[
-          { id: "tickets" as const, nome: "Tickets", emoji: "🎫", badge: abertos },
-          { id: "saques" as const, nome: "Saques", emoji: "💰", badge: pendentes.length },
-          { id: "pendencias" as const, nome: "Pendências", emoji: "⏳" },
-        ]}
-        ativa={sub}
-        onChange={setSub}
-      />
-
-      {sub === "tickets" && (
-        <Card>
-          {tickets.length === 0 ? (
-            <Vazio emoji="✅" titulo="Nenhum ticket" />
-          ) : (
-            <div className="space-y-2">
-              {tickets.map((t) => (
-                <div key={t.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-bold text-white">{t.assunto}</p>
-                      <p className="truncate text-xs text-slate-400">
-                        {t.usuario} · {new Date(t.ts).toLocaleString("pt-BR")}
-                      </p>
-                    </div>
-                    <Selo tom={t.status === "aberto" ? "ouro" : "verde"}>{t.status}</Selo>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-300">{t.msg}</p>
-                  <div className="mt-2 flex gap-2">
-                    <Botao
-                      variante="sucesso"
-                      className="px-3 py-1.5 text-xs"
-                      onClick={() => {
-                        setTickets((ts) => ts.map((x) => (x.id === t.id ? { ...x, status: "resolvido" } : x)));
-                        toast("Ticket resolvido", "ok");
-                      }}
-                    >
-                      Resolver
-                    </Botao>
-                    <Botao
-                      variante="ghost"
-                      className="px-3 py-1.5 text-xs"
-                      onClick={() => setTickets((ts) => ts.filter((x) => x.id !== t.id))}
-                    >
-                      Excluir
-                    </Botao>
-                  </div>
+      <Card>
+        <h3 className="mb-3 font-black text-white">💰 Saques via PIX</h3>
+        {saques.length === 0 ? (
+          <Vazio emoji="✅" titulo="Nenhum saque" />
+        ) : (
+          <div className="space-y-2">
+            {saques.map((s) => (
+              <div
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-bold text-white">{fmtBRL(s.valor)}</p>
+                  <p className="truncate text-xs text-slate-400">
+                    {s.usuario} · {s.chave}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {sub === "saques" && (
-        <Card>
-          {saques.length === 0 ? (
-            <Vazio emoji="✅" titulo="Nenhum saque" />
-          ) : (
-            <div className="space-y-2">
-              {saques.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-bold text-white">{fmtBRL(s.valor)}</p>
-                    <p className="truncate text-xs text-slate-400">
-                      {s.usuario} · {s.chave}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Selo tom={s.status === "pago" ? "verde" : s.status === "recusado" ? "vermelho" : "ouro"}>
-                      {s.status}
-                    </Selo>
-                    {s.status === "pendente" && (
-                      <>
-                        <Botao
-                          variante="sucesso"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={() => {
-                            setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "pago" } : x)));
-                            toast("Saque marcado como pago", "ok");
-                          }}
-                        >
-                          Pagar
-                        </Botao>
-                        <Botao
-                          variante="perigo"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={() =>
-                            setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "recusado" } : x)))
-                          }
-                        >
-                          Recusar
-                        </Botao>
-                      </>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Selo tom={s.status === "pago" ? "verde" : s.status === "recusado" ? "vermelho" : "ouro"}>
+                    {s.status}
+                  </Selo>
+                  {s.status === "pendente" && (
+                    <>
+                      <Botao
+                        variante="sucesso"
+                        className="px-3 py-1.5 text-xs"
+                        onClick={() => {
+                          setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "pago" } : x)));
+                          toast("Saque marcado como pago", "ok");
+                        }}
+                      >
+                        Pagar
+                      </Botao>
+                      <Botao
+                        variante="perigo"
+                        className="px-3 py-1.5 text-xs"
+                        onClick={() => setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "recusado" } : x)))}
+                      >
+                        Recusar
+                      </Botao>
+                    </>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {sub === "pendencias" && (
-        <Card>
-          <h3 className="mb-3 font-black text-white">⏳ Fila geral</h3>
-          <div className="space-y-2 text-sm">
-            {[...tickets.filter((t) => t.status === "aberto").map((t) => `🎫 Ticket: ${t.assunto} (${t.usuario})`),
-              ...pendentes.map((s) => `💰 Saque de ${fmtBRL(s.valor)} para ${s.usuario}`)].map((l, i) => (
-              <div key={i} className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-slate-300">
-                {l}
               </div>
             ))}
-            {abertos + pendentes.length === 0 && <Vazio emoji="🎉" titulo="Tudo em dia!" />}
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
     </div>
   );
 }
@@ -458,12 +374,7 @@ function EditorConta({
           </Campo>
           <Campo label="Definir nível diretamente" dica="Ajusta o XP para o mínimo do nível escolhido">
             <div className="flex gap-2">
-              <Input
-                type="number"
-                min={1}
-                value={nivelAlvo}
-                onChange={(e) => setNivelAlvo(Math.max(1, Number(e.target.value)))}
-              />
+              <Input type="number" min={1} value={nivelAlvo} onChange={(e) => setNivelAlvo(Math.max(1, Number(e.target.value)))} />
               <Botao variante="ghost" onClick={() => set("xp", xpParaNivel(nivelAlvo))}>
                 Aplicar
               </Botao>
@@ -476,7 +387,6 @@ function EditorConta({
           <Switch ligado={u.admin} onChange={(v) => set("admin", v)} rotulo="Administrador" />
         </div>
 
-        {/* Inventário */}
         <div>
           <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
             Inventário ({u.itens.length})
@@ -531,7 +441,6 @@ function EditorConta({
           </div>
         </div>
 
-        {/* Equipados */}
         <div>
           <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Itens equipados</p>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -608,9 +517,7 @@ function LojaAdmin() {
   const abas = [{ id: "todos", nome: "📦 Todos" }, ...GRUPOS_ADMIN.map((g) => ({ id: g.id, nome: g.nome }))];
   const cats = GRUPOS_ADMIN.find((g) => g.id === grupo)?.cats;
   const lista = cfg.itens.filter(
-    (i) =>
-      (!cats || cats.includes(i.categoria)) &&
-      (!busca || i.nome.toLowerCase().includes(busca.toLowerCase())),
+    (i) => (!cats || cats.includes(i.categoria)) && (!busca || i.nome.toLowerCase().includes(busca.toLowerCase())),
   );
 
   const totalHS = cfg.itens.reduce((a, b) => a + (b.hs || 0), 0);
@@ -631,12 +538,7 @@ function LojaAdmin() {
 
       <Card>
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            placeholder="🔍 Buscar item..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            className="flex-1"
-          />
+          <Input placeholder="🔍 Buscar item..." value={busca} onChange={(e) => setBusca(e.target.value)} className="flex-1" />
           <Botao onClick={() => setEdit(itemVazio())}>+ Novo item</Botao>
         </div>
         <div className="mt-3">
@@ -788,12 +690,7 @@ function EditorItem({
               <Input type="number" step="0.01" value={i.hs} onChange={(e) => set("hs", Number(e.target.value))} />
             </Campo>
             <Campo label="Bônus percentual (%)" dica="Ex.: 5 = +5% de mineração">
-              <Input
-                type="number"
-                step="1"
-                value={Math.round((i.bonusPct || 0) * 100)}
-                onChange={(e) => set("bonusPct", Number(e.target.value) / 100)}
-              />
+              <Input type="number" step="1" value={Math.round((i.bonusPct || 0) * 100)} onChange={(e) => set("bonusPct", Number(e.target.value) / 100)} />
             </Campo>
           </div>
         ) : (
@@ -822,11 +719,7 @@ function EditorItem({
           </Campo>
         </div>
 
-        <Switch
-          ligado={i.decorativo}
-          onChange={(v) => set("decorativo", v)}
-          rotulo="Pode ser posicionado no Quarto Virtual"
-        />
+        <Switch ligado={i.decorativo} onChange={(v) => set("decorativo", v)} rotulo="Pode ser posicionado no Quarto Virtual" />
 
         <div className="flex gap-2 pt-1">
           <Botao variante="ghost" className="flex-1" onClick={onFechar}>
@@ -842,20 +735,21 @@ function EditorItem({
 }
 
 /* ========================================================================
-   ABA CASSINO
+   ABA GERENCIAR JOGOS — visual + RTP + ativação por jogo
    ======================================================================== */
-function CassinoAdmin() {
-  const { cfg, toggleJogo, salvarConfig } = useConfig();
+function JogosAdmin() {
+  const { cfg, salvarJogo, salvarConfig, jogo } = useConfig();
   const { toast } = useApp();
+  const [edit, setEdit] = useState<JogoConfig | null>(null);
 
   return (
     <div className="space-y-4">
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-black text-white">🎰 Controle de Jogos do Cassino</h3>
+            <h3 className="font-black text-white">🎰 Gerenciar Jogos do Cassino</h3>
             <p className="text-sm text-slate-400">
-              Jogos desativados somem do cassino e ficam inacessíveis — salvo em localStorage + banco.
+              Edite nome, visual, RTP e ativação de cada jogo — refletido no lobby em tempo real.
             </p>
           </div>
           <Switch
@@ -870,30 +764,514 @@ function CassinoAdmin() {
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {JOGOS_META.map((j) => {
-          const ativo = cfg.jogos[j.id] !== false;
+        {JOGOS_META.map((m) => {
+          const j = cfg.jogos[m.id];
           return (
-            <Card key={j.id} className={`p-4 ${ativo ? "" : "opacity-60"}`}>
-              <div className="flex items-center gap-3">
-                <div className="text-3xl">{j.emoji}</div>
-                <div className="flex-1">
-                  <p className="font-bold text-white">{j.nome}</p>
-                  <p className="text-[11px] text-slate-400">{j.desc}</p>
-                </div>
+            <Card key={m.id} className={`overflow-hidden p-0 ${j.ativo ? "" : "opacity-60"}`}>
+              <div className="relative flex h-24 items-center justify-center bg-[radial-gradient(120%_120%_at_50%_0%,rgba(217,70,239,0.2),transparent_60%)] text-5xl">
+                {j.gif || j.capa ? (
+                  <img src={j.gif || j.capa} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" />
+                ) : null}
+                <span className="relative">{j.emoji}</span>
+                <span className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-[9px] font-black uppercase text-amber-300">
+                  {j.tag}
+                </span>
               </div>
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-white/5 p-2">
-                <Selo tom={ativo ? "verde" : "vermelho"}>{ativo ? "Ativado" : "Desativado"}</Selo>
-                <Switch
-                  ligado={ativo}
-                  onChange={(v) => {
-                    toggleJogo(j.id, v);
-                    toast(`${j.nome} ${v ? "ativado" : "desativado"}`, v ? "ok" : "info");
-                  }}
-                />
+              <div className="p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate font-bold text-white">{j.nome}</p>
+                  <Selo tom="ciano">RTP {Math.round((j.rtp ?? 0.97) * 100)}%</Selo>
+                </div>
+                <p className="mt-1 line-clamp-2 min-h-[32px] text-[11px] text-slate-400">{j.desc}</p>
+                <div className="mt-3 flex items-center justify-between">
+                  <Switch
+                    ligado={j.ativo}
+                    onChange={(v) => {
+                      salvarJogo({ ...j, ativo: v });
+                      toast(`${j.nome} ${v ? "ativado" : "desativado"}`, v ? "ok" : "info");
+                    }}
+                    rotulo={j.ativo ? "Ativado" : "Desativado"}
+                  />
+                  <Botao variante="ghost" className="px-3 py-1.5 text-xs" onClick={() => setEdit(jogo(m.id))}>
+                    ✏️ Editar
+                  </Botao>
+                </div>
               </div>
             </Card>
           );
         })}
+      </div>
+
+      {edit && (
+        <EditorJogo
+          jogo={edit}
+          onFechar={() => setEdit(null)}
+          onSalvar={(j) => {
+            salvarJogo(j);
+            toast(`Jogo "${j.nome}" atualizado ✅`, "ok");
+            setEdit(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditorJogo({
+  jogo: j,
+  onFechar,
+  onSalvar,
+}: {
+  jogo: JogoConfig;
+  onFechar: () => void;
+  onSalvar: (j: JogoConfig) => void;
+}) {
+  const [x, setX] = useState<JogoConfig>({ ...j });
+  const set = <K extends keyof JogoConfig>(k: K, v: JogoConfig[K]) => setX((a) => ({ ...a, [k]: v }));
+
+  return (
+    <Modal aberto onFechar={onFechar} titulo={`Editar jogo · ${j.nome}`} largura="max-w-2xl">
+      <div className="space-y-4">
+        <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-black/40 text-4xl">{x.emoji}</div>
+          <div className="flex-1">
+            <p className="font-bold text-white">{x.nome}</p>
+            <p className="text-xs text-slate-400">ID: {x.id}</p>
+          </div>
+          <Switch ligado={x.ativo} onChange={(v) => set("ativo", v)} rotulo={x.ativo ? "Ativado" : "Desativado"} />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo label="Título">
+            <Input value={x.nome} onChange={(e) => set("nome", e.target.value)} />
+          </Campo>
+          <Campo label="Ícone / Emoji">
+            <Input value={x.emoji} onChange={(e) => set("emoji", e.target.value)} placeholder="🎰" />
+          </Campo>
+          <Campo label="Tag / Badge" dica="Ex.: Popular, Novo, Jackpot">
+            <Input value={x.tag} onChange={(e) => set("tag", e.target.value)} />
+          </Campo>
+          <Campo label="URL da imagem de capa">
+            <Input value={x.capa} onChange={(e) => set("capa", e.target.value)} placeholder="https://.../capa.png" />
+          </Campo>
+          <Campo label="URL de GIF / animação" dica="Exibido no card do jogo no lobby">
+            <Input value={x.gif} onChange={(e) => set("gif", e.target.value)} placeholder="https://.../anim.gif" />
+          </Campo>
+        </div>
+
+        <Campo label="Descrição curta">
+          <Textarea rows={2} value={x.desc} onChange={(e) => set("desc", e.target.value)} />
+        </Campo>
+
+        <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.06] p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-white">🎯 RTP — chance de retorno</p>
+              <p className="text-xs text-slate-400">Maior RTP = mais generoso com o jogador (house edge menor).</p>
+            </div>
+            <span className="text-2xl font-black text-cyan-300">{Math.round((x.rtp ?? 0.97) * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={50}
+            max={100}
+            value={Math.round((x.rtp ?? 0.97) * 100)}
+            onChange={(e) => set("rtp", Number(e.target.value) / 100)}
+            className="mt-3 w-full accent-cyan-400"
+          />
+          <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+            <span>50% (casa ganha muito)</span>
+            <span>100% (justo)</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Botao variante="ghost" className="flex-1" onClick={onFechar}>
+            Cancelar
+          </Botao>
+          <Botao variante="sucesso" className="flex-1" onClick={() => onSalvar(x)}>
+            Salvar jogo
+          </Botao>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ========================================================================
+   ABA BANNERS & AVISOS — CRUD completo
+   ======================================================================== */
+function bannerVazio(): Banner {
+  return {
+    id: `b_${Date.now().toString(36)}`,
+    titulo: "",
+    desc: "",
+    imagem: "",
+    ctaTexto: "Saiba mais",
+    ctaLink: "#/inicio",
+    ativo: true,
+    cor: "from-fuchsia-600/50 via-indigo-800/40 to-slate-950",
+  };
+}
+
+function BannersAdmin() {
+  const { cfg, salvarBanner, excluirBanner } = useConfig();
+  const { toast } = useApp();
+  const [edit, setEdit] = useState<Banner | null>(null);
+  const [excluir, setExcluir] = useState<Banner | null>(null);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-white">📣 Banners & Avisos da Home</h3>
+            <p className="text-sm text-slate-400">
+              Crie, edite, ative/desative e exclua banners exibidos na página inicial de todos os usuários.
+            </p>
+          </div>
+          <Botao onClick={() => setEdit(bannerVazio())}>+ Novo banner</Botao>
+        </div>
+      </Card>
+
+      {cfg.banners.length === 0 ? (
+        <Card>
+          <Vazio emoji="📣" titulo="Nenhum banner" texto="Crie o primeiro banner promocional." />
+        </Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {cfg.banners.map((b) => (
+            <Card key={b.id} hover className={`overflow-hidden p-0 ${b.ativo ? "" : "opacity-55"}`}>
+              <div className={`relative flex h-28 items-center justify-center bg-gradient-to-br ${b.cor} p-4`}>
+                {b.imagem ? (
+                  <img src={b.imagem} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <span className="text-4xl">📣</span>
+                )}
+                <div className="absolute inset-0 bg-black/25" />
+                <p className="relative line-clamp-2 font-black text-white drop-shadow">{b.titulo}</p>
+              </div>
+              <div className="p-3">
+                <p className="line-clamp-2 min-h-[32px] text-[11px] text-slate-400">{b.desc}</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="truncate rounded-lg bg-white/5 px-2 py-1 text-[10px] font-bold text-fuchsia-300">
+                    {b.ctaTexto || "sem CTA"} {b.ctaLink && `→ ${b.ctaLink}`}
+                  </span>
+                  <div className="flex shrink-0 gap-1.5">
+                    <Switch ligado={b.ativo} onChange={(v) => salvarBanner({ ...b, ativo: v })} />
+                    <Botao variante="ghost" className="px-2.5 py-1.5 text-xs" onClick={() => setEdit({ ...b })}>
+                      ✏️
+                    </Botao>
+                    <Botao variante="perigo" className="px-2.5 py-1.5 text-xs" onClick={() => setExcluir(b)}>
+                      🗑️
+                    </Botao>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {edit && (
+        <EditorBanner
+          banner={edit}
+          onFechar={() => setEdit(null)}
+          onSalvar={(b) => {
+            if (!b.titulo.trim()) return toast("Informe o título do banner", "erro");
+            salvarBanner(b);
+            toast("Banner salvo — já visível na Home", "ok");
+            setEdit(null);
+          }}
+        />
+      )}
+
+      <Confirmar
+        aberto={!!excluir}
+        perigo
+        titulo="Excluir banner"
+        mensagem={`Excluir o banner "${excluir?.titulo}"? Ele deixará de aparecer na Home.`}
+        onCancelar={() => setExcluir(null)}
+        onConfirmar={() => {
+          if (excluir) excluirBanner(excluir.id);
+          toast("Banner excluído", "ok");
+          setExcluir(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function EditorBanner({
+  banner: b,
+  onFechar,
+  onSalvar,
+}: {
+  banner: Banner;
+  onFechar: () => void;
+  onSalvar: (b: Banner) => void;
+}) {
+  const [x, setX] = useState<Banner>({ ...b });
+  const set = <K extends keyof Banner>(k: K, v: Banner[K]) => setX((a) => ({ ...a, [k]: v }));
+  const CORES = [
+    "from-fuchsia-600/50 via-indigo-800/40 to-slate-950",
+    "from-amber-500/50 via-rose-800/40 to-slate-950",
+    "from-emerald-600/50 via-teal-800/40 to-slate-950",
+    "from-cyan-600/50 via-sky-800/40 to-slate-950",
+    "from-violet-600/50 via-purple-800/40 to-slate-950",
+  ];
+
+  return (
+    <Modal aberto onFechar={onFechar} titulo={b.titulo ? `Editar banner` : "Novo banner"} largura="max-w-2xl">
+      <div className="space-y-4">
+        <div className={`relative flex h-32 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br ${x.cor} p-4`}>
+          {x.imagem && <img src={x.imagem} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative text-center">
+            <p className="text-lg font-black text-white drop-shadow">{x.titulo || "Pré-visualização"}</p>
+            {x.desc && <p className="mt-1 text-xs text-slate-200">{x.desc}</p>}
+          </div>
+        </div>
+
+        <Campo label="Título">
+          <Input value={x.titulo} onChange={(e) => set("titulo", e.target.value)} />
+        </Campo>
+        <Campo label="Descrição">
+          <Textarea rows={2} value={x.desc} onChange={(e) => set("desc", e.target.value)} />
+        </Campo>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo label="URL da imagem / GIF animado" dica="Opcional — sem imagem usa o gradiente">
+            <Input value={x.imagem} onChange={(e) => set("imagem", e.target.value)} placeholder="https://.../banner.gif" />
+          </Campo>
+          <Campo label="Cor do gradiente (fallback)">
+            <div className="flex gap-1.5 pt-1">
+              {CORES.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => set("cor", c)}
+                  className={`h-8 w-10 rounded-lg bg-gradient-to-br ${c} ring-2 ${x.cor === c ? "ring-fuchsia-400" : "ring-white/10"}`}
+                />
+              ))}
+            </div>
+          </Campo>
+          <Campo label="Texto do botão (CTA)">
+            <Input value={x.ctaTexto} onChange={(e) => set("ctaTexto", e.target.value)} />
+          </Campo>
+          <Campo label="Link do CTA" dica="Ex.: #/cassino, #/loja ou URL externa">
+            <Input value={x.ctaLink} onChange={(e) => set("ctaLink", e.target.value)} />
+          </Campo>
+        </div>
+
+        <Switch ligado={x.ativo} onChange={(v) => set("ativo", v)} rotulo={x.ativo ? "Banner ativo" : "Banner desativado"} />
+
+        <div className="flex gap-2">
+          <Botao variante="ghost" className="flex-1" onClick={onFechar}>
+            Cancelar
+          </Botao>
+          <Botao variante="sucesso" className="flex-1" onClick={() => onSalvar(x)}>
+            Salvar banner
+          </Botao>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ========================================================================
+   ABA TICKETS / SUPORTE — listar, filtrar, responder, status e crédito
+   ======================================================================== */
+function TicketsAdmin() {
+  const { toast, creditarUsuario } = useApp();
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [filtro, setFiltro] = useState<string>("todos");
+  const [sel, setSel] = useState<Ticket | null>(null);
+  const [resp, setResp] = useState("");
+  const [credMAS, setCredMAS] = useState(0);
+  const [credBRL, setCredBRL] = useState(0);
+  const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "tickets"), (snap) => {
+      setTickets(snap.docs.map((d) => d.data() as Ticket).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
+    });
+    return unsub;
+  }, []);
+
+  const filtrar = (t: Ticket) =>
+    filtro === "todos" ? true : filtro === "meus" ? t.uid === sel?.uid : t.status === filtro;
+
+  const enviarResposta = async () => {
+    if (!sel || !resp.trim()) return;
+    setEnviando(true);
+    try {
+      await responderTicket(sel.id, "admin", resp.trim());
+      setResp("");
+    } catch {
+      toast("Falha ao enviar resposta", "erro");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const creditar = async () => {
+    if (!sel) return;
+    if (credMAS <= 0 && credBRL <= 0) return toast("Informe um valor", "erro");
+    try {
+      await creditarUsuario(sel.uid, credMAS, credBRL, `Suporte · ${sel.assunto}`);
+      await responderTicket(
+        sel.id,
+        "admin",
+        `✅ Crédito aplicado: ${credMAS > 0 ? fmtMAS(credMAS) : ""}${credMAS > 0 && credBRL > 0 ? " e " : ""}${
+          credBRL > 0 ? fmtBRL(credBRL) : ""
+        } (reembolso/suporte).`,
+      );
+      toast("Crédito aplicado na conta do usuário ✅", "ok");
+      setCredMAS(0);
+      setCredBRL(0);
+    } catch {
+      toast("Falha ao creditar", "erro");
+    }
+  };
+
+  const pendentes = tickets.filter((t) => t.status === "pendente" || t.status === "analise").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Estat emoji="🎫" titulo="Total" valor={String(tickets.length)} />
+        <Estat emoji="🟡" titulo="Aguardando" valor={String(pendentes)} cor="text-amber-300" />
+        <Estat emoji="🟢" titulo="Resolvidos" valor={String(tickets.filter((t) => t.status === "resolvido").length)} cor="text-emerald-300" />
+        <Estat emoji="🔴" titulo="Fechados" valor={String(tickets.filter((t) => t.status === "fechado").length)} cor="text-rose-300" />
+      </div>
+
+      <Abas
+        abas={[
+          { id: "todos", nome: "Todos", emoji: "📥", badge: tickets.length },
+          { id: "pendente", nome: "Pendente", emoji: "🟡", badge: tickets.filter((t) => t.status === "pendente").length },
+          { id: "analise", nome: "Em análise", emoji: "🔵", badge: tickets.filter((t) => t.status === "analise").length },
+          { id: "resolvido", nome: "Resolvido", emoji: "🟢" },
+          { id: "fechado", nome: "Fechado", emoji: "🔴" },
+        ]}
+        ativa={filtro}
+        onChange={setFiltro}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
+        <div className="space-y-2">
+          {tickets.filter(filtrar).length === 0 ? (
+            <Card>
+              <Vazio emoji="✅" titulo="Nenhum ticket" />
+            </Card>
+          ) : (
+            tickets
+              .filter(filtrar)
+              .map((t) => {
+                const st = STATUS_TICKET[t.status];
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setSel(t)}
+                    className={`w-full rounded-2xl border p-3 text-left transition ${
+                      sel?.id === t.id ? "border-fuchsia-400/60 bg-fuchsia-600/15" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.07]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-bold text-white">{t.assunto}</p>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black ${st.cls}`}>
+                        {st.emoji} {st.nome}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-[11px] text-slate-400">
+                      {t.nome} · {t.categoria}
+                    </p>
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      {new Date(t.criadoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })} ·{" "}
+                      {t.mensagens.length} msg
+                    </p>
+                  </button>
+                );
+              })
+          )}
+        </div>
+
+        <Card className="h-fit">
+          {!sel ? (
+            <Vazio emoji="🎧" titulo="Selecione um ticket" texto="A conversa com o usuário aparece aqui." />
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-black text-white">{sel.assunto}</h3>
+                  <p className="text-xs text-slate-400">
+                    {sel.nome} · {sel.email} · {sel.categoria}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(Object.keys(STATUS_TICKET) as (keyof typeof STATUS_TICKET)[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStatusTicket(sel.id, s).catch(() => {})}
+                      className={`rounded-lg border px-2 py-1 text-[10px] font-black transition ${
+                        sel.status === s ? STATUS_TICKET[s].cls : "border-white/10 bg-white/5 text-slate-500 hover:text-white"
+                      }`}
+                    >
+                      {STATUS_TICKET[s].emoji} {STATUS_TICKET[s].nome}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
+                {sel.mensagens.map((m) => (
+                  <div key={m.id} className={`flex ${m.autor === "admin" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                        m.autor === "admin"
+                          ? "rounded-br-sm bg-fuchsia-600/30 text-fuchsia-50"
+                          : "rounded-bl-sm bg-white/[0.07] text-slate-200"
+                      }`}
+                    >
+                      <p className="text-[9px] font-bold uppercase text-slate-400">
+                        {m.autor === "admin" ? "Você (suporte)" : sel.nome}
+                      </p>
+                      <p className="whitespace-pre-wrap">{m.texto}</p>
+                      <p className="mt-1 text-[9px] text-slate-500">
+                        {new Date(m.ts).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Escreva uma resposta..."
+                  value={resp}
+                  onChange={(e) => setResp(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && enviarResposta()}
+                />
+                <Botao disabled={!resp.trim() || enviando} onClick={enviarResposta}>
+                  {enviando ? "..." : "Enviar"}
+                </Botao>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+                <p className="text-xs font-bold text-emerald-300">⚡ Ação rápida: crédito na conta do usuário</p>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <Campo label="MAS">
+                    <Input type="number" min={0} value={credMAS} onChange={(e) => setCredMAS(Math.max(0, Number(e.target.value)))} className="w-28" />
+                  </Campo>
+                  <Campo label="R$">
+                    <Input type="number" min={0} value={credBRL} onChange={(e) => setCredBRL(Math.max(0, Number(e.target.value)))} className="w-28" />
+                  </Campo>
+                  <Botao variante="sucesso" onClick={creditar} disabled={credMAS <= 0 && credBRL <= 0}>
+                    Creditar na conta
+                  </Botao>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );
@@ -917,8 +1295,7 @@ function MineracaoAdmin() {
           <div>
             <h3 className="font-black text-white">🖱️ Mineração por clique</h3>
             <p className="text-sm text-slate-400">
-              Configuração atual: {m.cliqueAtivo ? "ativa" : "desativada"} · {fmtMAS(m.valorClique)} por clique ·
-              cooldown {m.cooldownMs}ms
+              Configuração atual: {m.cliqueAtivo ? "ativa" : "desativada"} · {fmtMAS(m.valorClique)} por clique · cooldown {m.cooldownMs}ms
             </p>
           </div>
           <Switch
@@ -932,26 +1309,13 @@ function MineracaoAdmin() {
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo label="MAS por clique">
-            <Input
-              type="number"
-              step="0.01"
-              value={m.valorClique}
-              onChange={(e) => set({ valorClique: Math.max(0, Number(e.target.value)) })}
-            />
+            <Input type="number" step="0.01" value={m.valorClique} onChange={(e) => set({ valorClique: Math.max(0, Number(e.target.value)) })} />
           </Campo>
           <Campo label="Cooldown (ms)" dica="Anti-spam entre cliques">
-            <Input
-              type="number"
-              value={m.cooldownMs}
-              onChange={(e) => set({ cooldownMs: Math.max(0, Number(e.target.value)) })}
-            />
+            <Input type="number" value={m.cooldownMs} onChange={(e) => set({ cooldownMs: Math.max(0, Number(e.target.value)) })} />
           </Campo>
           <Campo label="Chance de crítico (%)">
-            <Input
-              type="number"
-              value={Math.round(m.chanceCritico * 100)}
-              onChange={(e) => set({ chanceCritico: Number(e.target.value) / 100 })}
-            />
+            <Input type="number" value={Math.round(m.chanceCritico * 100)} onChange={(e) => set({ chanceCritico: Number(e.target.value) / 100 })} />
           </Campo>
           <Campo label="Multiplicador do crítico">
             <Input type="number" value={m.multCritico} onChange={(e) => set({ multCritico: Number(e.target.value) })} />
@@ -963,12 +1327,7 @@ function MineracaoAdmin() {
         <h3 className="font-black text-white">⚙️ Mineração automática</h3>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo label="Multiplicador global" dica="Aplica a todo o hashrate da rede">
-            <Input
-              type="number"
-              step="0.1"
-              value={m.multiplicadorGlobal}
-              onChange={(e) => set({ multiplicadorGlobal: Number(e.target.value) })}
-            />
+            <Input type="number" step="0.1" value={m.multiplicadorGlobal} onChange={(e) => set({ multiplicadorGlobal: Number(e.target.value) })} />
           </Campo>
           <Campo label="Capacidade (horas)">
             <Input type="number" value={m.capHoras} onChange={(e) => set({ capHoras: Number(e.target.value) })} />
@@ -987,16 +1346,7 @@ function MineracaoAdmin() {
           <h3 className="font-black text-white">🏭 Rigs da fazenda</h3>
           <Botao
             onClick={() =>
-              setRig({
-                id: `rig_${Date.now().toString(36)}`,
-                nome: "",
-                emoji: "⚙️",
-                preco: 1000,
-                taxa: 0.1,
-                energia: 1,
-                desc: "",
-                ativo: true,
-              })
+              setRig({ id: `rig_${Date.now().toString(36)}`, nome: "", emoji: "⚙️", preco: 1000, taxa: 0.1, energia: 1, desc: "", ativo: true })
             }
           >
             + Nova rig
@@ -1004,10 +1354,7 @@ function MineracaoAdmin() {
         </div>
         <div className="mt-3 space-y-2">
           {cfg.rigs.map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-            >
+            <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
               <span className="text-2xl">{r.emoji}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold text-white">{r.nome}</p>
@@ -1041,12 +1388,7 @@ function MineracaoAdmin() {
                 <Input type="number" value={rig.preco} onChange={(e) => setRig({ ...rig, preco: Number(e.target.value) })} />
               </Campo>
               <Campo label="Potência (H/s)">
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={rig.taxa}
-                  onChange={(e) => setRig({ ...rig, taxa: Number(e.target.value) })}
-                />
+                <Input type="number" step="0.01" value={rig.taxa} onChange={(e) => setRig({ ...rig, taxa: Number(e.target.value) })} />
               </Campo>
               <Campo label="Energia (kW)">
                 <Input type="number" value={rig.energia} onChange={(e) => setRig({ ...rig, energia: Number(e.target.value) })} />
@@ -1120,25 +1462,14 @@ function XpAdmin() {
       <Card>
         <h3 className="font-black text-white">⭐ Curva de progressão</h3>
         <p className="text-sm text-slate-400">
-          Fórmula única do sistema: <code className="text-fuchsia-300">nível = ⌊√(XP / 40)⌋ + 1</code> — usada no
-          perfil, quarto, loja e admin.
+          Fórmula única do sistema: <code className="text-fuchsia-300">nível = ⌊√(XP / 40)⌋ + 1</code> — usada no perfil, quarto, loja e admin.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <Campo label="XP por MAS minerado">
-            <Input
-              type="number"
-              step="0.05"
-              value={cfg.xpPorMAS}
-              onChange={(e) => salvarConfig({ xpPorMAS: Number(e.target.value) })}
-            />
+            <Input type="number" step="0.05" value={cfg.xpPorMAS} onChange={(e) => salvarConfig({ xpPorMAS: Number(e.target.value) })} />
           </Campo>
           <Campo label="XP por MAS apostado">
-            <Input
-              type="number"
-              step="0.05"
-              value={cfg.xpPorAposta}
-              onChange={(e) => salvarConfig({ xpPorAposta: Number(e.target.value) })}
-            />
+            <Input type="number" step="0.05" value={cfg.xpPorAposta} onChange={(e) => salvarConfig({ xpPorAposta: Number(e.target.value) })} />
           </Campo>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1153,19 +1484,11 @@ function XpAdmin() {
       <Card>
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-black text-white">Ajuste rápido por usuário</h3>
-          <Input
-            placeholder="🔍 Filtrar..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            className="ml-auto max-w-xs"
-          />
+          <Input placeholder="🔍 Filtrar..." value={busca} onChange={(e) => setBusca(e.target.value)} className="ml-auto max-w-xs" />
         </div>
         <div className="mt-3 space-y-2">
           {filtrados.map((u) => (
-            <div
-              key={u.uid}
-              className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-            >
+            <div key={u.uid} className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
               <span className="text-2xl">{u.avatar}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold text-white">{u.nome}</p>
@@ -1197,7 +1520,7 @@ function XpAdmin() {
 }
 
 /* ========================================================================
-   ABA CONFIGURAÇÕES
+   ABA CONFIGURAÇÕES — saldo inicial, cotação e chaves gerais
    ======================================================================== */
 function ConfigAdmin() {
   const { cfg, salvarConfig, restaurarPadrao } = useConfig();
@@ -1206,6 +1529,58 @@ function ConfigAdmin() {
 
   return (
     <div className="space-y-4">
+      <Card glow className="border-emerald-500/20">
+        <h3 className="font-black text-white">🎁 Configuração de boas-vindas</h3>
+        <p className="text-sm text-slate-400">
+          Saldo inicial em MAS creditado <b>uma única vez</b> no primeiro cadastro de cada usuário. Alterar aqui não afeta contas já criadas.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <Campo label="Saldo inicial de MAS (novo cadastro)">
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={cfg.saldoInicial}
+              onChange={(e) => {
+                const v = Math.max(0, Number(e.target.value));
+                salvarConfig({ saldoInicial: v });
+                toast(`Novos cadastros receberão ${v} MAS`, "ok");
+              }}
+            />
+          </Campo>
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
+            Aplicado no <code className="text-fuchsia-300">createUserDocument</code> do Firestore — nunca sobrescrito em relogins ou ao limpar cache.
+          </div>
+        </div>
+      </Card>
+
+      <Card glow className="border-sky-500/20">
+        <h3 className="font-black text-white">💱 Cotação do MAS (R$)</h3>
+        <p className="text-sm text-slate-400">
+          Define 1 MAS = R$ X. Atualiza instantaneamente a conversão na Carteira, Loja e Dashboard de todos os usuários via onSnapshot.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <Campo label="Cotação (1 MAS em reais)">
+            <Input
+              type="number"
+              min={0.01}
+              step={0.01}
+              value={cfg.cotacaoMAS}
+              onChange={(e) => {
+                const v = Math.max(0.01, Number(e.target.value));
+                salvarConfig({ cotacaoMAS: v });
+              }}
+            />
+          </Campo>
+          <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-3 text-sm">
+            <p className="text-slate-400">Pré-visualização</p>
+            <p className="font-black text-white">
+              100 MAS = R$ {fmtNum(100 * cfg.cotacaoMAS, 2)} · 10 MAS = R$ {fmtNum(10 * cfg.cotacaoMAS, 2)}
+            </p>
+          </div>
+        </div>
+      </Card>
+
       <Card>
         <h3 className="font-black text-white">⚙️ Chaves gerais da plataforma</h3>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -1238,8 +1613,7 @@ function ConfigAdmin() {
       <Card className="border-rose-500/20">
         <h3 className="font-black text-rose-300">⚠️ Zona de risco</h3>
         <p className="mt-1 text-sm text-slate-400">
-          Restaura o catálogo de itens, rigs, jogos e parâmetros para os valores de fábrica. Não afeta as contas dos
-          usuários.
+          Restaura o catálogo de itens, rigs, jogos, banners e parâmetros para os valores de fábrica. Não afeta as contas dos usuários.
         </p>
         <Botao variante="perigo" className="mt-3" onClick={() => setConf(true)}>
           Restaurar configuração padrão

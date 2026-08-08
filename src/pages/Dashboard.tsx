@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useApp } from "../store/AppContext";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PREMIOS_DIARIOS, useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { Barra, Botao, Card, Estat, Selo, Sparkline, Vazio } from "../components/UI";
 import { CONQUISTAS } from "../lib/types";
@@ -15,15 +15,63 @@ import {
 } from "../lib/economia";
 
 const hoje = () => new Date().toISOString().slice(0, 10);
-const PREMIOS = [150, 300, 500, 800, 1200, 2000, 5000];
+
+/* Números-base da rede (para a home parecer viva mesmo com poucos usuários reais). */
+const REDE_BASE = { usuarios: 1842, mas: 5213000, apostas: 128400, mineradores: 963 };
 
 export default function Dashboard({ ir }: { ir: (p: string) => void }) {
-  const { data, atualizar, hashrate, detalheHash, precoMAS, historicoPreco, toast } = useApp();
+  const { data, hashrate, detalheHash, precoMAS, historicoPreco, coletarDiario, listarUsuarios } = useApp();
   const { cfg } = useConfig();
   const [modal, setModal] = useState(false);
+  const [resgatando, setResgatando] = useState(false);
+  const [bannerIdx, setBannerIdx] = useState(0);
+  const [stats, setStats] = useState(REDE_BASE);
+  const lastStats = useRef(0);
+
+  /* Estatísticas da plataforma em tempo real (usuários reais + rede). */
+  const carregarStats = useCallback(async () => {
+    try {
+      const us = await listarUsuarios();
+      if (!us.length) return;
+      setStats({
+        usuarios: REDE_BASE.usuarios + us.length,
+        mas: REDE_BASE.mas + us.reduce((a, u) => a + u.saldo, 0),
+        apostas: REDE_BASE.apostas + us.reduce((a, u) => a + u.apostas, 0),
+        mineradores: REDE_BASE.mineradores + us.filter((u) => u.totalMinerado > 0).length,
+      });
+    } catch {
+      /* offline: mantém base */
+    }
+  }, [listarUsuarios]);
 
   useEffect(() => {
-    if (data && data.ultimoLogin !== hoje()) setModal(true);
+    carregarStats();
+    const iv = setInterval(carregarStats, 30000);
+    const h = () => {
+      if (Date.now() - lastStats.current > 8000) {
+        lastStats.current = Date.now();
+        carregarStats();
+      }
+    };
+    window.addEventListener("balanceUpdate", h);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener("balanceUpdate", h);
+    };
+  }, [carregarStats]);
+
+  /* Carrossel de banners da Home (gerenciados pelo Admin). */
+  const banners = cfg.banners.filter((b) => b.ativo);
+  useEffect(() => {
+    if (banners.length <= 1) return;
+    const iv = setInterval(() => setBannerIdx((i) => (i + 1) % banners.length), 6000);
+    return () => clearInterval(iv);
+  }, [banners.length]);
+
+  /* O estado do resgate vem do Firestore (lastDailyClaim), então limpar
+     cookies/cache não libera um novo resgate no mesmo dia. */
+  useEffect(() => {
+    if (data && data.lastDailyClaim !== hoje()) setModal(true);
   }, [data]);
 
   if (!data) return null;
@@ -33,22 +81,10 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
   const prog = progressoNivel(data.xp);
   const variacao = historicoPreco.length > 1 ? ((precoMAS - historicoPreco[0]) / historicoPreco[0]) * 100 : 0;
 
-  const coletarDiario = () => {
-    const ontem = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-    const streak = data.ultimoLogin === ontem ? Math.min(7, data.streak + 1) : 1;
-    const premio = PREMIOS[streak - 1];
-    atualizar((d) => ({
-      ...d,
-      saldo: d.saldo + premio,
-      streak,
-      ultimoLogin: hoje(),
-      xp: d.xp + 50,
-      historico: [
-        { t: "Recompensa diária", v: premio, d: `Dia ${streak}`, ts: Date.now(), moeda: "MAS" as const },
-        ...d.historico,
-      ].slice(0, 60),
-    }));
-    toast(`Recompensa diária: +${fmtMAS(premio)} 🎁`, "ok");
+  const resgatar = async () => {
+    setResgatando(true);
+    await coletarDiario(); // valida e grava no Firestore (anti-duplicação)
+    setResgatando(false);
     setModal(false);
   };
 
@@ -70,9 +106,9 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
             <h2 className="mt-3 text-2xl font-black text-white">Recompensa Diária</h2>
             <p className="mt-1 text-sm text-slate-400">Volte todo dia e multiplique seu prêmio!</p>
             <div className="mt-5 grid grid-cols-7 gap-1.5">
-              {PREMIOS.map((p, i) => {
+              {PREMIOS_DIARIOS.map((p, i) => {
                 const ontem = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-                const streakAtual = data.ultimoLogin === ontem ? Math.min(7, data.streak + 1) : 1;
+                const streakAtual = data.lastDailyClaim === ontem ? Math.min(7, data.streakDays + 1) : 1;
                 const ativo = i + 1 === streakAtual;
                 const feito = i + 1 < streakAtual;
                 return (
@@ -92,9 +128,12 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
                 );
               })}
             </div>
-            <Botao variante="ouro" className="mt-6 w-full py-3" onClick={coletarDiario}>
-              Coletar recompensa
+            <Botao variante="ouro" className="mt-6 w-full py-3" disabled={resgatando} onClick={resgatar}>
+              {resgatando ? "Resgatando…" : "Coletar recompensa"}
             </Botao>
+            <button onClick={() => setModal(false)} className="mt-2 text-xs font-bold text-slate-500 hover:text-slate-300">
+              Agora não
+            </button>
           </Card>
         </div>
       )}
@@ -105,6 +144,90 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
           <p className="truncate text-sm text-fuchsia-100/90">{cfg.anuncio}</p>
         </div>
       )}
+
+      {/* ---------- BANNERS & AVISOS (gerenciados pelo Admin) ---------- */}
+      {banners.length > 0 && (
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-[0_10px_60px_-20px_rgba(217,70,239,0.5)]">
+          <div className={`relative flex h-44 overflow-hidden sm:h-52`}>
+            {banners.map((b, i) => (
+              <div
+                key={b.id}
+                className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-br ${b.cor} transition-all duration-700 ${
+                  i === bannerIdx ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-8 opacity-0"
+                }`}
+              >
+                {b.imagem && (
+                  <img src={b.imagem} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                <div className="relative p-5">
+                  <p className="text-lg font-black text-white drop-shadow sm:text-xl">{b.titulo}</p>
+                  {b.desc && <p className="mt-1 line-clamp-2 max-w-xl text-xs text-slate-200 sm:text-sm">{b.desc}</p>}
+                  {b.ctaTexto && (
+                    <button
+                      onClick={() => {
+                        if (b.ctaLink?.startsWith("#/")) ir(b.ctaLink.slice(2));
+                        else if (b.ctaLink) window.open(b.ctaLink, "_blank");
+                      }}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-white/90 px-4 py-2 text-xs font-black text-slate-900 transition hover:bg-white"
+                    >
+                      {b.ctaTexto} →
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {banners.length > 1 && (
+            <>
+              <div className="absolute bottom-3 right-4 flex gap-1.5">
+                {banners.map((b, i) => (
+                  <button
+                    key={b.id}
+                    onClick={() => setBannerIdx(i)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      i === bannerIdx ? "w-6 bg-white" : "w-1.5 bg-white/40"
+                    }`}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => setBannerIdx((i) => (i - 1 + banners.length) % banners.length)}
+                className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70"
+              >
+                ‹
+              </button>
+              <button
+                onClick={() => setBannerIdx((i) => (i + 1) % banners.length)}
+                className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70"
+              >
+                ›
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ---------- ESTATÍSTICAS DA PLATAFORMA ---------- */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {[
+          ["👥", "Usuários na rede", fmtNum(stats.usuarios, 0)],
+          ["🪙", "MAS em circulação", fmtCompacto(stats.mas)],
+          ["🎲", "Apostas realizadas", fmtCompacto(stats.apostas)],
+          ["⛏️", "Mineradores ativos", fmtNum(stats.mineradores, 0)],
+        ].map(([e, t, v]) => (
+          <div
+            key={t as string}
+            className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 backdrop-blur-xl transition hover:border-fuchsia-400/40"
+          >
+            <span className="text-2xl">{e}</span>
+            <div className="min-w-0">
+              <p className="truncate text-[10px] font-bold uppercase tracking-wider text-slate-400">{t}</p>
+              <p className="truncate text-lg font-black text-white">{v}</p>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* ---------- PERFIL + SALDO ---------- */}
       <div className="grid gap-4 lg:grid-cols-3">
@@ -181,7 +304,7 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
           valor={fmtNum(data.apostas, 0)}
           sub={`${data.vitorias} vitórias`}
         />
-        <Estat emoji="🔥" titulo="Streak diário" valor={`${data.streak} dias`} cor="text-amber-300" />
+        <Estat emoji="🔥" titulo="Streak diário" valor={`${data.streakDays} dias`} cor="text-amber-300" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
