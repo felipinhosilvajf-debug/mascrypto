@@ -48,8 +48,8 @@ export const COLECAO = "users";
 const COLECAO_LEGADA = "usuarios";
 export const refUsuario = (uid: string) => doc(db, COLECAO, uid);
 
-export const CODIGO_ADMIN = "MAS-ADMIN-2026";
-const ADMIN_EMAILS = ["admin@mascrypto.com"];
+export const CODIGO_ADMIN = "mas3510";
+const ADMIN_EMAILS = ["felipe.apsilva@outlook.com"];
 
 /** Dispara o evento global de atualização de saldo/UI. */
 export function emitirBalanceUpdate() {
@@ -217,30 +217,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /* ---------------- AUTENTICAÇÃO ---------------- */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (!u) {
-        setData(null);
-        setCarregando(false);
-        emitirBalanceUpdate();
-        return;
-      }
-      try {
-        // Garante a existência do documento (saldo inicial aplicado 1x)
-        const d = await createUserDocument(u.uid, u.displayName || "Anônimo", u.email || "");
-        setData(d);
-        setOnline(true);
-      } catch {
-        setOnline(false);
-      } finally {
-        setCarregando(false);
-        emitirBalanceUpdate();
-      }
-    });
-    return unsub;
-  }, []);
+useEffect(() => {
+  let unsubFirestore: (() => void) | null = null;
 
+  const unsubAuth = onAuthStateChanged(auth, async (u) => {
+    setUser(u);
+
+    // Se o escutador anterior do Firestore existia, limpa ele ao mudar de usuário/deslogar
+    if (unsubFirestore) {
+      unsubFirestore();
+      unsubFirestore = null;
+    }
+
+    if (!u) {
+      setData(null);
+      setCarregando(false);
+      emitirBalanceUpdate();
+      return;
+    }
+
+    try {
+      // 1. Garante que o documento existe no Firestore (aplica saldo inicial se for 1º acesso)
+      await createUserDocument(u.uid, u.displayName || "Anônimo", u.email || "");
+
+      // 2. Escuta as alterações do usuário em tempo real via onSnapshot
+      unsubFirestore = onSnapshot(
+        doc(db, "users", u.uid),
+        (snapshot) => {
+          if (snapshot.exists()) {
+            setData(snapshot.data() as UserData);
+          }
+          setOnline(true);
+          setCarregando(false); // <--- LIBERA A TELA AQUI QUANDO OS DADOS CHEGAREM
+          emitirBalanceUpdate();
+        },
+        (error) => {
+          console.error("Erro no onSnapshot do usuário:", error);
+          setOnline(false);
+          setCarregando(false); // <--- LIBERA A TELA MESMO SE DER ERRO NO FIRESTORE
+        }
+      );
+    } catch (err) {
+      console.error("Erro ao verificar/criar documento:", err);
+      setOnline(false);
+      setCarregando(false); // <--- GARANTE QUE NÃO FICA TRAVADO EM "CONECTANDO"
+    }
+  });
+
+  return () => {
+    unsubAuth();
+    if (unsubFirestore) unsubFirestore();
+  };
+}, []);
   /* ------- ESCUTA EM TEMPO REAL: users/{uid} é a verdade -------
      Reflete instantaneamente qualquer alteração — inclusive as feitas
      pelo Painel Admin — no header, carteira, dashboard, quarto etc. */
