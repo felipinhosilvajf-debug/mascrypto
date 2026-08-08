@@ -415,6 +415,54 @@ export function PillSaldo({ mas, brl }: { mas: number; brl: number }) {
   );
 }
 
+/**
+ * Rodapé padrão do gráfico do MAS — exibe o intervalo configurado pelo Admin
+ * e uma contagem regressiva até a próxima amostra. Todos os componentes que
+ * usam Sparkline devem exibir esta linha logo abaixo.
+ */
+export function GraficoStatus({
+  ativo,
+  intervaloMs,
+  proximoMs,
+  modo,
+}: {
+  ativo: boolean;
+  intervaloMs: number;
+  proximoMs: number;
+  modo?: string;
+}) {
+  if (!ativo)
+    return (
+      <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">
+        Gráfico pausado pela administração
+      </p>
+    );
+  const segundos = Math.max(0, intervaloMs / 1000);
+  const proxSeg = Math.max(0, Math.ceil(proximoMs / 100) / 10);
+  const passo = Math.max(1, intervaloMs);
+  const pct = Math.min(100, Math.max(0, ((passo - proximoMs) / passo) * 100));
+  return (
+    <div className="mt-2">
+      <div className="h-0.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-fuchsia-400 via-cyan-300 to-emerald-300 transition-all duration-200"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="mt-1 flex flex-wrap items-center justify-between gap-x-3 text-[11px] text-slate-500">
+        <span>
+          Atualizado em tempo real <span className="mx-1 text-slate-600">•</span> Intervalo:{" "}
+          <b className="text-slate-300">{fmtNum(segundos, segundos < 2 ? 1 : 0)} s</b>
+        </span>
+        <span>
+          Próxima atualização em <b className="text-cyan-300">{fmtNum(proxSeg, proxSeg < 2 ? 1 : 0)} s</b>
+          {modo && <span className="ml-2 rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">{modo}</span>}
+        </span>
+      </p>
+    </div>
+  );
+}
+
 export function Vazio({ emoji, titulo, texto }: { emoji: string; titulo: string; texto?: string }) {
   return (
     <div className="py-12 text-center">

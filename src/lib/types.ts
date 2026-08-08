@@ -60,6 +60,7 @@ export interface UserData {
   equipados: Record<string, string>; // slot -> itemId
   tema: string;
   quarto: Record<string, { x: number; y: number }>;
+  avatarPos: { x: number; y: number };
   ultimaColeta: number;
   /** Data (YYYY-MM-DD) do último resgate diário — validado no servidor. */
   lastDailyClaim: string;
@@ -96,6 +97,7 @@ export function novoUsuario(uid: string, nome: string, email: string, saldoInici
     equipados: {},
     tema: "neon",
     quarto: {},
+    avatarPos: { x: 4, y: 3 },
     ultimaColeta: Date.now(),
     lastDailyClaim: "",
     streakDays: 0,
@@ -137,6 +139,9 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
   d.equipados = d.equipados && typeof d.equipados === "object" ? d.equipados : {};
   d.rigs = d.rigs && typeof d.rigs === "object" ? d.rigs : {};
   d.quarto = d.quarto && typeof d.quarto === "object" ? d.quarto : {};
+  d.avatarPos = d.avatarPos && typeof d.avatarPos.x === "number" && typeof d.avatarPos.y === "number"
+    ? d.avatarPos
+    : { x: 4, y: 3 };
   d.historico = Array.isArray(d.historico) ? d.historico : [];
   d.conquistas = Array.isArray(d.conquistas) ? d.conquistas : [];
   d.saldo = Number(d.saldo) || 0;

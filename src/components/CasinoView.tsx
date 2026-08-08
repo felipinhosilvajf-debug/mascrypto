@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Selo, Vazio } from "./UI";
-import { CaraCoroa, Crash, Dados, Mines, Roleta, Slots, Torre } from "../games/Jogos";
+import { Bomb, Building2, CircleDot, Coins, Dice5, Disc3, GitFork, Rocket, Spade, type LucideIcon } from "lucide-react";
+import { CaraCoroa, Crash, Dados, Double, Mines, Plinko, Roleta, Slots, Torre } from "../games/Jogos";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { fmtMAS, fmtNum } from "../lib/economia";
@@ -13,6 +14,20 @@ const COMPONENTES: Record<string, React.ComponentType> = {
   roleta: Roleta,
   moeda: CaraCoroa,
   torre: Torre,
+  double: Double,
+  plinko: Plinko,
+};
+
+const ICONES: Record<string, LucideIcon> = {
+  crash: Rocket,
+  mines: Bomb,
+  slots: Spade,
+  dados: Dice5,
+  roleta: CircleDot,
+  moeda: Coins,
+  torre: Building2,
+  double: Disc3,
+  plinko: GitFork,
 };
 
 const BRILHOS: Record<string, string> = {
@@ -101,7 +116,9 @@ export default function CasinoView() {
       ) : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           {disponiveis.map((j) => (
-            <button
+            (() => {
+              const Icone = ICONES[j.id] || CircleDot;
+              return <button
               key={j.id}
               onClick={() => setAtivo(ativo === j.id ? null : j.id)}
               className={`group relative overflow-hidden rounded-2xl border p-4 text-left transition-all duration-300 ${
@@ -130,15 +147,16 @@ export default function CasinoView() {
               <span className="absolute right-2 top-2 rounded-full bg-black/50 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-amber-300">
                 {j.tag}
               </span>
-              <div className="relative text-4xl transition-transform duration-300 group-hover:scale-125 group-hover:rotate-6">
-                {j.emoji}
+              <div className="relative transition-transform duration-300 group-hover:scale-125 group-hover:rotate-6">
+                <Icone className="h-10 w-10 stroke-[1.6] text-fuchsia-200 drop-shadow-[0_0_10px_rgba(232,121,249,.7)]" />
               </div>
               <p className="relative mt-2 text-sm font-black text-white">{j.nome}</p>
               <p className="relative text-[10px] leading-tight text-slate-400">{j.desc}</p>
               <Selo tom="ciano" className="relative mt-1.5">
                 RTP {Math.round((j.rtp ?? 0.97) * 100)}%
               </Selo>
-            </button>
+            </button>;
+            })()
           ))}
         </div>
       )}

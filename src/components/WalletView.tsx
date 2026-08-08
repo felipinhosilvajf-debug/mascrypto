@@ -1,85 +1,112 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
+import {
+  COLECAO_PAGAMENTOS,
+  DEPOSITO_MINIMO,
+  SAQUE_MINIMO,
+  solicitarDepositoManual,
+  solicitarSaqueManual,
+  type DestinoDeposito,
+  type PagamentoManual,
+} from "../lib/pagamentos";
 import { fmtBRL, fmtMAS, fmtNum } from "../lib/economia";
-import { Abas, Botao, Campo, Card, Input, Selo, Sparkline, Vazio } from "./UI";
+import { Abas, Botao, Campo, Card, GraficoStatus, Input, Selo, Sparkline, Textarea, Vazio } from "./UI";
 
-const MOEDAS = [
-  { s: "BRL", nome: "Real", simb: "R$", taxaBRL: 1, e: "🇧🇷", casas: 2 },
-  { s: "USD", nome: "Dólar", simb: "US$", taxaBRL: 5.42, e: "🇺🇸", casas: 2 },
-  { s: "EUR", nome: "Euro", simb: "€", taxaBRL: 5.88, e: "🇪🇺", casas: 2 },
-  { s: "BTC", nome: "Bitcoin", simb: "₿", taxaBRL: 384520.33, e: "🟠", casas: 8 },
-  { s: "ETH", nome: "Ethereum", simb: "Ξ", taxaBRL: 19870.11, e: "🔷", casas: 6 },
-  { s: "USDT", nome: "Tether", simb: "₮", taxaBRL: 5.42, e: "🟢", casas: 2 },
-];
+type Aba = "converter" | "depositar" | "sacar" | "pedidos" | "extrato";
+
+const STATUS = {
+  pendente: { label: "Em análise", tom: "ouro" as const, icone: "⌛" },
+  aprovado: { label: "Aprovado", tom: "verde" as const, icone: "✓" },
+  recusado: { label: "Recusado", tom: "vermelho" as const, icone: "×" },
+};
 
 export default function WalletView() {
-  const { data, mover, precoMAS, historicoPreco, toast } = useApp();
+  const { user, data, mover, precoMAS, historicoPreco, proximoTickMs, toast } = useApp();
   const { cfg } = useConfig();
-  const [aba, setAba] = useState<"converter" | "pix" | "enviar" | "extrato">("converter");
-  const [qtd, setQtd] = useState(100);
-  const [moeda, setMoeda] = useState("BRL");
+  const [aba, setAba] = useState<Aba>("converter");
+  const [direcao, setDirecao] = useState<"MAS_BRL" | "BRL_MAS">("MAS_BRL");
+  const [valorConversao, setValorConversao] = useState(10);
+  const [valorDeposito, setValorDeposito] = useState(DEPOSITO_MINIMO);
+  const [destinoDeposito, setDestinoDeposito] = useState<DestinoDeposito>("BRL");
+  const [comprovante, setComprovante] = useState("");
+  const [observacao, setObservacao] = useState("");
+  const [valorSaque, setValorSaque] = useState(SAQUE_MINIMO);
   const [chavePix, setChavePix] = useState("");
-  const [deposito, setDeposito] = useState(100);
-  const [destino, setDestino] = useState("");
-  const [envio, setEnvio] = useState(50);
+  const [pedidos, setPedidos] = useState<PagamentoManual[]>([]);
+  const [enviando, setEnviando] = useState(false);
 
-  if (!data) return null;
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, COLECAO_PAGAMENTOS), where("uid", "==", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const lista = snap.docs
+        .map((d) => d.data() as PagamentoManual)
+        .sort((a, b) => b.criadoEm - a.criadoEm);
+      setPedidos(lista);
+    });
+    return unsub;
+  }, [user, toast]);
 
-  const m = MOEDAS.find((x) => x.s === moeda)!;
+  if (!data || !user) return null;
+
   const taxa = cfg.taxaConversao;
-  const bruto = (qtd * precoMAS) / m.taxaBRL;
-  const liquido = bruto * (1 - taxa);
+  const depositoMinimo = cfg.depositoMinimo ?? DEPOSITO_MINIMO;
+  const saqueMinimo = cfg.saqueMinimo ?? SAQUE_MINIMO;
+  const bruto = Math.max(0, Number(valorConversao) || 0);
+  const taxaValor = direcao === "MAS_BRL" ? bruto * precoMAS * taxa : bruto * taxa;
+  const liquido =
+    direcao === "MAS_BRL"
+      ? bruto * precoMAS * (1 - taxa)
+      : (bruto * (1 - taxa)) / Math.max(0.01, precoMAS);
+  const saldoOrigem = direcao === "MAS_BRL" ? data.saldo : data.brl;
   const variacao = historicoPreco.length > 1 ? ((precoMAS - historicoPreco[0]) / historicoPreco[0]) * 100 : 0;
 
-  /* MAS → moeda (crédito em BRL na carteira, convertido pela cotação) */
   const converter = () => {
-    if (qtd <= 0) return toast("Quantidade inválida", "erro");
-    const creditoBRL = liquido * m.taxaBRL;
-    if (
-      mover({
-        mas: -qtd,
-        brl: creditoBRL,
-        titulo: `Conversão MAS → ${moeda}`,
-        detalhe: `${m.simb} ${fmtNum(liquido, m.casas)}`,
-        xp: 5,
-      })
-    )
-      toast(`Convertido! ${m.simb} ${fmtNum(liquido, m.casas)} creditados`, "ok");
+    if (bruto <= 0) return toast("Informe um valor válido", "erro");
+    if (bruto > saldoOrigem) return toast("Saldo insuficiente", "erro");
+    const ok =
+      direcao === "MAS_BRL"
+        ? mover({ mas: -bruto, brl: liquido, titulo: "Conversão MAS → BRL", detalhe: `${fmtMAS(bruto)} por ${fmtBRL(liquido)}`, xp: 5 })
+        : mover({ brl: -bruto, mas: liquido, titulo: "Conversão BRL → MAS", detalhe: `${fmtBRL(bruto)} por ${fmtMAS(liquido)}`, xp: 5 });
+    if (ok) toast(`Conversão concluída: você recebeu ${direcao === "MAS_BRL" ? fmtBRL(liquido) : fmtMAS(liquido)}`, "ok");
   };
 
-  /* R$ → MAS */
-  const comprarMAS = (valorBRL: number) => {
-    if (valorBRL <= 0) return;
-    const recebe = (valorBRL / precoMAS) * (1 - taxa);
-    if (mover({ mas: recebe, brl: -valorBRL, titulo: "Compra de MAS", detalhe: fmtBRL(valorBRL), xp: 5 }))
-      toast(`+${fmtMAS(recebe)} adquiridos`, "ok");
+  const depositar = async () => {
+    if (valorDeposito < depositoMinimo) return toast(`Depósito mínimo: ${fmtBRL(depositoMinimo)}`, "erro");
+    setEnviando(true);
+    try {
+      await solicitarDepositoManual({ uid: user.uid, nome: data.nome, email: data.email, valorBRL: valorDeposito, destino: destinoDeposito, comprovante, observacao, minimo: depositoMinimo });
+      toast("Solicitação de depósito enviada para análise", "ok");
+      setComprovante("");
+      setObservacao("");
+      setAba("pedidos");
+    } catch (e) {
+      toast((e as Error).message || "Falha ao solicitar depósito", "erro");
+    } finally {
+      setEnviando(false);
+    }
   };
 
-  /* Depósito PIX (simulado) */
-  const depositar = () => {
-    if (deposito < 10) return toast("Depósito mínimo: R$ 10,00", "erro");
-    mover({ brl: deposito, titulo: "Depósito PIX", detalhe: "Confirmado", xp: 10 });
-    toast(`${fmtBRL(deposito)} creditados via PIX ✅`, "ok");
+  const sacar = async () => {
+    if (valorSaque < saqueMinimo) return toast(`Saque mínimo: ${fmtBRL(saqueMinimo)}`, "erro");
+    if (valorSaque > data.brl) return toast("Saldo em reais insuficiente", "erro");
+    setEnviando(true);
+    try {
+      await solicitarSaqueManual({ uid: user.uid, nome: data.nome, email: data.email, valorBRL: valorSaque, chavePix, minimo: saqueMinimo });
+      toast(`${fmtBRL(valorSaque)} reservados; saque enviado para análise`, "ok");
+      setChavePix("");
+      setAba("pedidos");
+    } catch (e) {
+      toast((e as Error).message || "Falha ao solicitar saque", "erro");
+    } finally {
+      setEnviando(false);
+    }
   };
 
-  const sacar = () => {
-    if (!cfg.saquesAtivos) return toast("Saques temporariamente suspensos", "erro");
-    if (!chavePix.trim()) return toast("Informe sua chave PIX", "erro");
-    if (data.brl < cfg.saqueMinimo) return toast(`Saque mínimo: ${fmtBRL(cfg.saqueMinimo)}`, "erro");
-    const v = data.brl;
-    if (mover({ brl: -v, titulo: "Saque PIX", detalhe: chavePix }))
-      toast(`Saque de ${fmtBRL(v)} solicitado — até 24h úteis`, "ok");
-    setChavePix("");
-  };
-
-  const enviar = () => {
-    if (!destino.trim()) return toast("Informe o destinatário", "erro");
-    if (envio <= 0) return toast("Valor inválido", "erro");
-    if (mover({ mas: -envio, titulo: "Transferência enviada", detalhe: `Para ${destino}` }))
-      toast(`${fmtMAS(envio)} enviados para ${destino}`, "ok");
-    setDestino("");
-  };
+  const pendentes = pedidos.filter((p) => p.status === "pendente").length;
 
   return (
     <div className="space-y-5">
@@ -88,230 +115,143 @@ export default function WalletView() {
           <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-emerald-500/20 blur-3xl" />
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300/80">Carteira MAS</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-emerald-300/80">Carteira principal</p>
               <p className="mt-1 text-4xl font-black text-white sm:text-5xl">{fmtMAS(data.saldo)}</p>
-              <p className="mt-1 text-sm text-slate-400">
-                ≈ {fmtBRL(data.saldo * precoMAS)} · 1 MAS = {fmtBRL(precoMAS)}
-              </p>
+              <p className="mt-1 text-sm text-slate-400">≈ {fmtBRL(data.saldo * precoMAS)} · 1 MAS = {fmtBRL(precoMAS)}</p>
             </div>
             <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-right">
-              <p className="text-[10px] font-bold uppercase text-sky-400/80">Saldo em Reais</p>
+              <p className="text-[10px] font-bold uppercase text-sky-400/80">Saldo disponível BRL</p>
               <p className="text-2xl font-black text-sky-300">{fmtBRL(data.brl)}</p>
             </div>
           </div>
-          <div className="mt-4 h-20">
-            <Sparkline dados={historicoPreco} cor={variacao >= 0 ? "#34d399" : "#fb7185"} />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Selo tom={variacao >= 0 ? "verde" : "vermelho"}>
-              {variacao >= 0 ? "▲" : "▼"} {fmtNum(Math.abs(variacao), 2)}% 24h
-            </Selo>
-            <span className="break-all font-mono text-[10px] text-fuchsia-300/70">
-              mas1{data.uid.slice(0, 24).toLowerCase()}
-            </span>
+          <div className="mt-4 h-20"><Sparkline dados={historicoPreco} cor={variacao >= 0 ? "#34d399" : "#fb7185"} /></div>
+          <GraficoStatus ativo={cfg.grafico.ativo} intervaloMs={cfg.grafico.intervaloMs} proximoMs={proximoTickMs} modo={cfg.grafico.modo} />
+          <div className="mt-3 flex items-center gap-2">
+            <Selo tom={variacao >= 0 ? "verde" : "vermelho"}>{variacao >= 0 ? "▲" : "▼"} {fmtNum(Math.abs(variacao), 2)}% histórico</Selo>
+            {pendentes > 0 && <Selo tom="ouro">⌛ {pendentes} pendente(s)</Selo>}
           </div>
         </Card>
-
         <Card>
-          <h3 className="mb-2 text-sm font-black text-white">📊 Cotações MAS</h3>
-          <div className="space-y-0.5">
-            {MOEDAS.map((x) => (
-              <div key={x.s} className="flex items-center justify-between border-b border-white/5 py-1.5 text-sm last:border-0">
-                <span className="text-slate-300">
-                  {x.e} {x.s}
-                </span>
-                <span className="font-bold text-white">
-                  {x.simb} {fmtNum(precoMAS / x.taxaBRL, x.casas)}
-                </span>
-              </div>
+          <h3 className="font-black text-white">Taxas e mínimos</h3>
+          <div className="mt-3 space-y-2 text-sm">
+            {[["Conversão", `${fmtNum(taxa * 100, 2)}%`], ["Depósito mínimo", fmtBRL(depositoMinimo)], ["Saque mínimo", fmtBRL(saqueMinimo)]].map(([k,v]) => (
+              <div key={k} className="flex justify-between rounded-xl bg-white/5 p-2.5"><span className="text-slate-400">{k}</span><b className="text-white">{v}</b></div>
             ))}
+            <p className="text-[11px] text-slate-500">Depósitos e saques são analisados manualmente pela administração.</p>
           </div>
         </Card>
       </div>
 
       <Abas
         abas={[
-          { id: "converter" as const, nome: "Converter", emoji: "💱" },
-          { id: "pix" as const, nome: "PIX", emoji: "🏦" },
-          { id: "enviar" as const, nome: "Enviar", emoji: "📤" },
-          { id: "extrato" as const, nome: "Extrato", emoji: "🧾" },
+          { id: "converter" as const, nome: "Converter", emoji: "↔" },
+          { id: "depositar" as const, nome: "Depositar", emoji: "+" },
+          { id: "sacar" as const, nome: "Sacar", emoji: "−" },
+          { id: "pedidos" as const, nome: "Solicitações", emoji: "⌛", badge: pendentes },
+          { id: "extrato" as const, nome: "Extrato", emoji: "≡" },
         ]}
         ativa={aba}
         onChange={setAba}
       />
 
       {aba === "converter" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <h3 className="font-black text-white">MAS → Moeda</h3>
-            <p className="text-xs text-slate-400">Taxa da rede: {fmtNum(taxa * 100, 1)}%</p>
-            <div className="mt-3 space-y-3">
-              <Campo label="Quantidade de MAS">
-                <Input type="number" value={qtd} onChange={(e) => setQtd(Number(e.target.value))} />
-              </Campo>
-              <div className="flex gap-1.5">
-                {[25, 50, 100].map((p) => (
-                  <Botao
-                    key={p}
-                    variante="ghost"
-                    className="flex-1 py-1.5 text-xs"
-                    onClick={() => setQtd(Math.floor((data.saldo * p) / 100))}
-                  >
-                    {p}%
-                  </Botao>
-                ))}
+        <Card className="mx-auto max-w-2xl">
+          <div className="flex rounded-xl bg-white/5 p-1">
+            {(["MAS_BRL", "BRL_MAS"] as const).map((d) => (
+              <button key={d} onClick={() => { setDirecao(d); setValorConversao(0); }} className={`flex-1 rounded-lg py-2.5 text-sm font-black transition ${direcao === d ? "bg-gradient-to-r from-fuchsia-600 to-indigo-600 text-white" : "text-slate-400"}`}>
+                {d === "MAS_BRL" ? "MAS → BRL" : "BRL → MAS"}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 space-y-3">
+            <Campo label={`Valor em ${direcao === "MAS_BRL" ? "MAS" : "Reais (R$)"}`}>
+              <div className="flex gap-2">
+                <Input type="number" min={0} step="0.01" value={valorConversao} onChange={(e) => setValorConversao(Math.max(0, Number(e.target.value)))} />
+                <Botao variante="ghost" className="shrink-0" onClick={() => setValorConversao(saldoOrigem)}>Transferir tudo</Botao>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {MOEDAS.map((x) => (
-                  <button
-                    key={x.s}
-                    onClick={() => setMoeda(x.s)}
-                    className={`rounded-xl border py-2 text-xs font-bold transition ${
-                      moeda === x.s
-                        ? "border-fuchsia-400 bg-fuchsia-500/20 text-white"
-                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                    }`}
-                  >
-                    {x.e} {x.s}
+            </Campo>
+            <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm">
+              <p className="mb-3 text-xs font-black uppercase tracking-wider text-slate-400">Resumo da conversão</p>
+              <div className="flex justify-between py-1 text-slate-300"><span>Valor bruto</span><b>{direcao === "MAS_BRL" ? fmtMAS(bruto) : fmtBRL(bruto)}</b></div>
+              <div className="flex justify-between py-1 text-rose-300"><span>Taxa ({fmtNum(taxa * 100, 2)}%)</span><b>−{fmtBRL(taxaValor)}</b></div>
+              <div className="mt-2 flex justify-between border-t border-white/10 pt-3 text-lg font-black text-emerald-300"><span>Valor líquido final</span><span>{direcao === "MAS_BRL" ? fmtBRL(liquido) : fmtMAS(liquido)}</span></div>
+              <p className="mt-2 text-[10px] text-slate-500">Cotação aplicada: 1 MAS = {fmtBRL(precoMAS)}</p>
+            </div>
+            <Botao className="w-full py-3" disabled={bruto <= 0 || bruto > saldoOrigem} onClick={converter}>Converter {direcao === "MAS_BRL" ? "MAS em Reais" : "Reais em MAS"}</Botao>
+          </div>
+        </Card>
+      )}
+
+      {aba === "depositar" && (
+        <Card className="mx-auto max-w-2xl">
+          <h3 className="font-black text-white">Solicitar depósito manual</h3>
+          <p className="mt-1 text-xs text-slate-400">Faça o PIX e envie a referência do comprovante. O saldo só será creditado após aprovação do Admin.</p>
+          <div className="mt-4 space-y-3">
+            <Campo label="Valor do PIX em R$" dica={`Mínimo ${fmtBRL(depositoMinimo)}`}>
+              <Input type="number" min={depositoMinimo} step="0.01" value={valorDeposito} onChange={(e) => setValorDeposito(Math.max(0, Number(e.target.value)))} />
+            </Campo>
+            <Campo label="Receber o crédito em">
+              <div className="grid grid-cols-2 gap-2">
+                {(["BRL", "MAS"] as DestinoDeposito[]).map((d) => (
+                  <button key={d} onClick={() => setDestinoDeposito(d)} className={`rounded-xl border py-2.5 text-sm font-black transition ${destinoDeposito === d ? "border-emerald-400 bg-emerald-500/20 text-white" : "border-white/10 bg-white/5 text-slate-400"}`}>
+                    {d === "BRL" ? "R$ na Carteira" : "MAS na Carteira"}
                   </button>
                 ))}
               </div>
-              <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm">
-                <div className="flex justify-between text-slate-400">
-                  <span>Bruto</span>
-                  <span>{m.simb} {fmtNum(bruto, m.casas)}</span>
-                </div>
-                <div className="flex justify-between text-rose-400">
-                  <span>Taxa</span>
-                  <span>−{m.simb} {fmtNum(bruto * taxa, m.casas)}</span>
-                </div>
-                <div className="mt-2 flex justify-between border-t border-white/10 pt-2 text-lg font-black text-emerald-400">
-                  <span>Recebe</span>
-                  <span>{m.simb} {fmtNum(liquido, m.casas)}</span>
-                </div>
-              </div>
-              <Botao className="w-full py-3" disabled={qtd <= 0 || qtd > data.saldo} onClick={converter}>
-                Converter agora
-              </Botao>
-            </div>
-          </Card>
-
-          <Card>
-            <h3 className="font-black text-white">Reais → MAS</h3>
-            <p className="text-xs text-slate-400">Use seu saldo em R$ para comprar MAScoin</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {[50, 100, 500, 1000].map((v) => (
-                <button
-                  key={v}
-                  onClick={() => comprarMAS(v)}
-                  disabled={data.brl < v}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:border-emerald-400/50 hover:bg-emerald-500/10 disabled:opacity-30"
-                >
-                  <p className="text-lg font-black text-white">{fmtBRL(v)}</p>
-                  <p className="text-xs text-emerald-300">≈ {fmtMAS((v / precoMAS) * (1 - taxa))}</p>
-                </button>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {aba === "pix" && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <h3 className="font-black text-white">🏦 Depositar via PIX</h3>
-            <div className="mt-3 space-y-3">
-              <Campo label="Valor do depósito (R$)">
-                <Input type="number" value={deposito} onChange={(e) => setDeposito(Number(e.target.value))} />
-              </Campo>
-              <div className="flex gap-1.5">
-                {[50, 100, 250, 500].map((v) => (
-                  <Botao key={v} variante="ghost" className="flex-1 py-1.5 text-xs" onClick={() => setDeposito(v)}>
-                    {v}
-                  </Botao>
-                ))}
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-center">
-                <div className="mx-auto grid h-24 w-24 grid-cols-6 gap-0.5 rounded-lg bg-white p-1.5">
-                  {Array.from({ length: 36 }, (_, i) => (
-                    <span key={i} className={(i * 7) % 3 === 0 ? "bg-slate-900" : "bg-white"} />
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] text-slate-400">QR Code PIX · MAScrypto Pagamentos</p>
-              </div>
-              <Botao variante="sucesso" className="w-full py-3" onClick={depositar}>
-                Confirmar depósito de {fmtBRL(deposito)}
-              </Botao>
-            </div>
-          </Card>
-
-          <Card>
-            <h3 className="font-black text-white">💸 Sacar para conta</h3>
-            <p className="text-xs text-slate-400">
-              Disponível: <b className="text-sky-300">{fmtBRL(data.brl)}</b> · mínimo {fmtBRL(cfg.saqueMinimo)}
-            </p>
-            <div className="mt-3 space-y-3">
-              <Campo label="Chave PIX">
-                <Input placeholder="CPF, e-mail ou telefone" value={chavePix} onChange={(e) => setChavePix(e.target.value)} />
-              </Campo>
-              <Botao
-                variante="ouro"
-                className="w-full py-3"
-                disabled={!cfg.saquesAtivos || data.brl < cfg.saqueMinimo}
-                onClick={sacar}
-              >
-                {cfg.saquesAtivos ? `Sacar ${fmtBRL(data.brl)}` : "Saques suspensos"}
-              </Botao>
-              <p className="text-[11px] text-slate-500">
-                Processamento em até 24h úteis · sem taxa para saques acima de {fmtBRL(cfg.saqueMinimo)}.
-              </p>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {aba === "enviar" && (
-        <Card className="mx-auto max-w-lg">
-          <h3 className="font-black text-white">📤 Transferir MAS</h3>
-          <div className="mt-3 space-y-3">
-            <Campo label="Destinatário">
-              <Input placeholder="E-mail ou endereço mas1..." value={destino} onChange={(e) => setDestino(e.target.value)} />
             </Campo>
-            <Campo label="Quantidade">
-              <Input type="number" value={envio} onChange={(e) => setEnvio(Number(e.target.value))} />
-            </Campo>
-            <Botao className="w-full py-3" disabled={envio > data.saldo} onClick={enviar}>
-              Enviar {fmtMAS(envio)}
-            </Botao>
+            <Campo label="Comprovante (URL ou código PIX)" dica="Cole o link da imagem ou o identificador da transação"><Input value={comprovante} onChange={(e) => setComprovante(e.target.value)} placeholder="Link ou ID do comprovante" /></Campo>
+            <Campo label="Observação (opcional)"><Textarea rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} /></Campo>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-3 text-sm">
+              <div className="flex justify-between text-slate-300"><span>Valor enviado</span><b>{fmtBRL(valorDeposito)}</b></div>
+              <div className="mt-1 flex justify-between font-black text-emerald-300"><span>Crédito após aprovação</span><span>{destinoDeposito === "BRL" ? fmtBRL(valorDeposito) : fmtMAS(valorDeposito / precoMAS)}</span></div>
+            </div>
+            <Botao variante="sucesso" className="w-full py-3" disabled={enviando || valorDeposito < depositoMinimo} onClick={depositar}>{enviando ? "Enviando..." : "Enviar solicitação de depósito"}</Botao>
           </div>
+        </Card>
+      )}
+
+      {aba === "sacar" && (
+        <Card className="mx-auto max-w-2xl">
+          <h3 className="font-black text-white">Solicitar saque via PIX</h3>
+          <p className="mt-1 text-xs text-slate-400">O valor fica reservado imediatamente. Se o saque for recusado, o estorno é automático e integral.</p>
+          <div className="mt-4 space-y-3">
+            <Campo label="Valor do saque em R$" dica={`Disponível ${fmtBRL(data.brl)} · mínimo ${fmtBRL(saqueMinimo)}`}>
+              <div className="flex gap-2"><Input type="number" min={saqueMinimo} step="0.01" value={valorSaque} onChange={(e) => setValorSaque(Math.max(0, Number(e.target.value)))} /><Botao variante="ghost" className="shrink-0" onClick={() => setValorSaque(data.brl)}>Sacar tudo</Botao></div>
+            </Campo>
+            <Campo label="Chave PIX"><Input value={chavePix} onChange={(e) => setChavePix(e.target.value)} placeholder="CPF, e-mail, telefone ou chave aleatória" /></Campo>
+            <div className="rounded-xl border border-sky-500/20 bg-sky-500/[0.06] p-3 text-sm">
+              <div className="flex justify-between text-slate-300"><span>Valor bruto</span><b>{fmtBRL(valorSaque)}</b></div>
+              <div className="mt-1 flex justify-between text-slate-300"><span>Taxa de saque</span><b>{fmtBRL(0)}</b></div>
+              <div className="mt-2 flex justify-between border-t border-white/10 pt-2 font-black text-sky-300"><span>Valor líquido a transferir</span><span>{fmtBRL(valorSaque)}</span></div>
+            </div>
+            <Botao variante="ouro" className="w-full py-3" disabled={enviando || valorSaque < saqueMinimo || valorSaque > data.brl || !chavePix.trim()} onClick={sacar}>{enviando ? "Reservando..." : `Reservar e solicitar ${fmtBRL(valorSaque)}`}</Botao>
+          </div>
+        </Card>
+      )}
+
+      {aba === "pedidos" && (
+        <Card>
+          <h3 className="mb-3 font-black text-white">Solicitações manuais</h3>
+          {pedidos.length === 0 ? <Vazio emoji="⌛" titulo="Nenhuma solicitação" texto="Seus depósitos e saques manuais aparecerão aqui." /> : (
+            <div className="space-y-2">
+              {pedidos.map((p) => {
+                const st = STATUS[p.status];
+                return <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-xl">{p.tipo === "deposito" ? "+" : "−"}</div>
+                  <div className="min-w-0 flex-1"><p className="font-bold capitalize text-white">{p.tipo} · {fmtBRL(p.valorBRL)}</p><p className="truncate text-[11px] text-slate-400">{p.tipo === "deposito" ? `Crédito em ${p.destino}` : `PIX ${p.chavePix}`} · pedido {p.id.slice(0, 8)}</p>{p.motivoRecusa && <p className="mt-1 text-[11px] text-rose-300">Motivo: {p.motivoRecusa}</p>}</div>
+                  <div className="text-right"><Selo tom={st.tom}>{st.icone} {st.label}</Selo><p className="mt-1 text-[10px] text-slate-500">{new Date(p.criadoEm).toLocaleString("pt-BR")}</p></div>
+                </div>;
+              })}
+            </div>
+          )}
         </Card>
       )}
 
       {aba === "extrato" && (
         <Card>
-          <h3 className="mb-3 font-black text-white">🧾 Extrato completo</h3>
-          {data.historico.length === 0 ? (
-            <Vazio emoji="📭" titulo="Nenhuma movimentação" texto="Suas transações aparecerão aqui." />
-          ) : (
-            <div className="max-h-[500px] space-y-1 overflow-y-auto pr-1">
-              {data.historico.map((h, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between rounded-xl px-3 py-2.5 transition hover:bg-white/5"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-white">{h.t}</p>
-                    <p className="truncate text-[11px] text-slate-500">
-                      {h.d} · {new Date(h.ts).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
-                    </p>
-                  </div>
-                  <span className={`shrink-0 text-sm font-black ${h.v >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {h.v >= 0 ? "+" : "−"}
-                    {h.moeda === "BRL" ? fmtBRL(Math.abs(h.v)) : fmtMAS(Math.abs(h.v))}
-                  </span>
-                </div>
-              ))}
-            </div>
+          <h3 className="mb-3 font-black text-white">Extrato completo</h3>
+          {data.historico.length === 0 ? <Vazio emoji="≡" titulo="Nenhuma movimentação" /> : (
+            <div className="max-h-[520px] space-y-1 overflow-y-auto">{data.historico.map((h, i) => <div key={i} className="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-white/5"><div className="min-w-0"><p className="truncate text-sm font-bold text-white">{h.t}</p><p className="truncate text-[11px] text-slate-500">{h.d} · {new Date(h.ts).toLocaleString("pt-BR")}</p></div><span className={`shrink-0 text-sm font-black ${h.v >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{h.v >= 0 ? "+" : "−"}{h.moeda === "BRL" ? fmtBRL(Math.abs(h.v)) : fmtMAS(Math.abs(h.v))}</span></div>)}</div>
           )}
         </Card>
       )}

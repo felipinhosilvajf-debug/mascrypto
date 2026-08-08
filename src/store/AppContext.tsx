@@ -22,8 +22,10 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
   runTransaction,
   setDoc,
+  where,
 } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import {
@@ -36,6 +38,7 @@ import {
 } from "../lib/types";
 import { nivelPorXp } from "../lib/economia";
 import { infoCategoria, type ConfigGlobal, type ItemLoja } from "../lib/catalogo";
+import { COLECAO_PAGAMENTOS, type PagamentoManual } from "../lib/pagamentos";
 import { useConfig } from "./ConfigContext";
 
 /* ============================================================
@@ -48,8 +51,8 @@ export const COLECAO = "users";
 const COLECAO_LEGADA = "usuarios";
 export const refUsuario = (uid: string) => doc(db, COLECAO, uid);
 
-export const CODIGO_ADMIN = "mas3510";
-const ADMIN_EMAILS = ["felipe.apsilva@outlook.com"];
+export const CODIGO_ADMIN = "MAS-ADMIN-2026";
+const ADMIN_EMAILS = ["admin@mascrypto.com"];
 
 /** Dispara o evento global de atualização de saldo/UI. */
 export function emitirBalanceUpdate() {
@@ -101,6 +104,8 @@ interface Ctx {
   detalheHash: { rigs: number; itens: number; bonusPct: number; total: number };
   precoMAS: number;
   historicoPreco: number[];
+  /** Milissegundos restantes até a próxima amostra do gráfico. */
+  proximoTickMs: number;
   desbloquearAdmin: (codigo: string) => boolean;
   listarUsuarios: () => Promise<UserData[]>;
   adminSalvarUsuario: (u: UserData) => Promise<void>;
@@ -192,13 +197,83 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   /* Cotação oficial vem da config do Admin (config/global) — atualiza em
      tempo real via onSnapshot no ConfigContext. O histórico alimenta o gráfico. */
   const precoMAS = cfg.cotacaoMAS;
-  const [historicoPreco, setHistoricoPreco] = useState<number[]>(() =>
-    Array.from({ length: 60 }, (_, i) => cfg.cotacaoMAS + Math.sin(i / 5) * 0.06 + (i % 7) * 0.012),
-  );
+  const [historicoPreco, setHistoricoPreco] = useState<number[]>(() => {
+    const g = cfg.grafico;
+    return Array.from({ length: g.janela }, (_, i) =>
+      cfg.cotacaoMAS * (1 + Math.sin(i / 6) * (g.amplitude || 0.01) * 0.7),
+    );
+  });
+  const [proximoTickMs, setProximoTickMs] = useState<number>(cfg.grafico.intervaloMs);
 
+  /* Ao mudar a cotação oficial no Admin, reancoramos o gráfico. */
   useEffect(() => {
-    setHistoricoPreco((h) => [...h.slice(-79), cfg.cotacaoMAS]);
-  }, [cfg.cotacaoMAS]);
+    setHistoricoPreco((h) => [...h.slice(-(cfg.grafico.janela - 1)), cfg.cotacaoMAS]);
+  }, [cfg.cotacaoMAS, cfg.grafico.janela]);
+
+  /* Motor do gráfico dinâmico: honra amplitude, picos, modo e intervalo do Admin.
+     Conversões usam sempre `precoMAS` (valor oficial), nunca a amostra visual. */
+  useEffect(() => {
+    const g = cfg.grafico;
+    if (!g.ativo || g.intervaloMs <= 0) {
+      setProximoTickMs(0);
+      return;
+    }
+    // Tendência do modo: bull sobe, bear desce, flat trava, volatile amplifica ruído
+    const tendencia =
+      g.modo === "bull" ? 0.0018 : g.modo === "bear" ? -0.0018 : g.modo === "flat" ? 0 : 0;
+    const fatorRuido = g.modo === "volatile" ? 1.6 : g.modo === "flat" ? 0.15 : 1;
+
+    const gerarProximo = (anteriores: number[]) => {
+      const ultima = anteriores[anteriores.length - 1] ?? cfg.cotacaoMAS;
+      let variacao = (Math.random() - 0.5) * 2 * g.amplitude * fatorRuido;
+      if (Math.random() < g.picoChance) {
+        const sentido = g.modo === "bear" ? -1 : g.modo === "bull" ? 1 : Math.random() < 0.5 ? -1 : 1;
+        variacao += sentido * g.picoAmplitude * (0.5 + Math.random() * 0.5);
+      }
+      variacao += tendencia;
+      // Mean-reversion: puxa o valor de volta para a cotação oficial
+      const pull = (cfg.cotacaoMAS - ultima) / cfg.cotacaoMAS;
+      variacao += pull * 0.25;
+      const bruta = ultima * (1 + variacao);
+      const suavizada = ultima * g.suavizacao + bruta * (1 - g.suavizacao);
+      const min = g.precoMin > 0 ? g.precoMin : 0.0001;
+      const max = g.precoMax > 0 ? g.precoMax : Number.POSITIVE_INFINITY;
+      return Math.min(max, Math.max(min, suavizada));
+    };
+
+    setProximoTickMs(g.intervaloMs);
+    const iv = setInterval(() => {
+      setHistoricoPreco((h) => {
+        const proxima = gerarProximo(h);
+        const cortado = h.length >= g.janela ? h.slice(-(g.janela - 1)) : h;
+        return [...cortado, proxima];
+      });
+      setProximoTickMs(g.intervaloMs);
+    }, g.intervaloMs);
+    return () => clearInterval(iv);
+  }, [
+    cfg.cotacaoMAS,
+    cfg.grafico.ativo,
+    cfg.grafico.intervaloMs,
+    cfg.grafico.amplitude,
+    cfg.grafico.picoAmplitude,
+    cfg.grafico.picoChance,
+    cfg.grafico.janela,
+    cfg.grafico.suavizacao,
+    cfg.grafico.precoMin,
+    cfg.grafico.precoMax,
+    cfg.grafico.modo,
+  ]);
+
+  /* Cronômetro visual: conta regressiva até o próximo tick para exibir na UI. */
+  useEffect(() => {
+    if (!cfg.grafico.ativo || cfg.grafico.intervaloMs <= 0) return;
+    const passo = 250;
+    const iv = setInterval(() => {
+      setProximoTickMs((v) => (v <= passo ? cfg.grafico.intervaloMs : v - passo));
+    }, passo);
+    return () => clearInterval(iv);
+  }, [cfg.grafico.ativo, cfg.grafico.intervaloMs]);
 
   const dataRef = useRef<UserData | null>(null);
   dataRef.current = data;
@@ -207,6 +282,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   /** Fila serial de transações — evita corridas entre operações simultâneas. */
   const fila = useRef<Promise<unknown>>(Promise.resolve());
   const pendentes = useRef(0);
+  const statusPagamentos = useRef<Record<string, string>>({});
   /** Acúmulo de cliques de mineração (evita 1 escrita por clique). */
   const bufferClique = useRef({ mas: 0, cliques: 0, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 });
 
@@ -217,58 +293,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /* ---------------- AUTENTICAÇÃO ---------------- */
-useEffect(() => {
-  let unsubFirestore: (() => void) | null = null;
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (!u) {
+        setData(null);
+        setCarregando(false);
+        emitirBalanceUpdate();
+        return;
+      }
+      try {
+        // Garante a existência do documento (saldo inicial aplicado 1x)
+        const d = await createUserDocument(u.uid, u.displayName || "Anônimo", u.email || "");
+        setData(d);
+        setOnline(true);
+      } catch {
+        setOnline(false);
+      } finally {
+        setCarregando(false);
+        emitirBalanceUpdate();
+      }
+    });
+    return unsub;
+  }, []);
 
-  const unsubAuth = onAuthStateChanged(auth, async (u) => {
-    setUser(u);
-
-    // Se o escutador anterior do Firestore existia, limpa ele ao mudar de usuário/deslogar
-    if (unsubFirestore) {
-      unsubFirestore();
-      unsubFirestore = null;
-    }
-
-    if (!u) {
-      setData(null);
-      setCarregando(false);
-      emitirBalanceUpdate();
-      return;
-    }
-
-    try {
-      // 1. Garante que o documento existe no Firestore (aplica saldo inicial se for 1º acesso)
-      await createUserDocument(u.uid, u.displayName || "Anônimo", u.email || "");
-
-      // 2. Escuta as alterações do usuário em tempo real via onSnapshot
-      unsubFirestore = onSnapshot(
-        doc(db, "users", u.uid),
-        (snapshot) => {
-          if (snapshot.exists()) {
-            setData(snapshot.data() as UserData);
-          }
-          setOnline(true);
-          setCarregando(false); // <--- LIBERA A TELA AQUI QUANDO OS DADOS CHEGAREM
-          emitirBalanceUpdate();
-        },
-        (error) => {
-          console.error("Erro no onSnapshot do usuário:", error);
-          setOnline(false);
-          setCarregando(false); // <--- LIBERA A TELA MESMO SE DER ERRO NO FIRESTORE
-        }
-      );
-    } catch (err) {
-      console.error("Erro ao verificar/criar documento:", err);
-      setOnline(false);
-      setCarregando(false); // <--- GARANTE QUE NÃO FICA TRAVADO EM "CONECTANDO"
-    }
-  });
-
-  return () => {
-    unsubAuth();
-    if (unsubFirestore) unsubFirestore();
-  };
-}, []);
   /* ------- ESCUTA EM TEMPO REAL: users/{uid} é a verdade -------
      Reflete instantaneamente qualquer alteração — inclusive as feitas
      pelo Painel Admin — no header, carteira, dashboard, quarto etc. */
@@ -294,6 +342,29 @@ useEffect(() => {
       },
       () => setOnline(false),
     );
+    return unsub;
+  }, [user, toast]);
+
+  /* Notificações financeiras globais: aprovação/recusa aparece em qualquer tela. */
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, COLECAO_PAGAMENTOS), where("uid", "==", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const meus = snap.docs.map((s) => s.data() as PagamentoManual);
+      for (const p of meus) {
+        const anterior = statusPagamentos.current[p.id];
+        if (anterior && anterior !== p.status) {
+          if (p.status === "aprovado")
+            toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque concluído"} pela administração`, "ok");
+          if (p.status === "recusado")
+            toast(
+              `${p.tipo === "saque" ? "Saque recusado e estornado" : "Depósito recusado"}${p.motivoRecusa ? `: ${p.motivoRecusa}` : ""}`,
+              "erro",
+            );
+        }
+        statusPagamentos.current[p.id] = p.status;
+      }
+    });
     return unsub;
   }, [user, toast]);
 
@@ -676,6 +747,7 @@ useEffect(() => {
         detalheHash,
         precoMAS,
         historicoPreco,
+        proximoTickMs,
         desbloquearAdmin,
         listarUsuarios,
         adminSalvarUsuario,

@@ -45,6 +45,16 @@ body {
   50% { opacity: 1; }
 }
 
+@keyframes particula {
+  0% { transform: translate3d(0, 35px, 0) scale(0); opacity: 0; }
+  15% { opacity: .9; transform: translate3d(8px, 10px, 0) scale(1); }
+  75% { opacity: .7; }
+  100% { transform: translate3d(-12px, -90px, 0) scale(.25); opacity: 0; }
+}
+
+button { touch-action: manipulation; }
+button:not(:disabled):active { filter: brightness(1.2); }
+
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

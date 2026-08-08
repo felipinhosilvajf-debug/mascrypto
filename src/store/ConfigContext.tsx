@@ -3,6 +3,7 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import {
   BANNERS_PADRAO,
+  CONFIG_GRAFICO_PADRAO,
   CONFIG_PADRAO,
   ITENS_PADRAO,
   JOGOS_META,
@@ -44,7 +45,18 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     ...CONFIG_PADRAO,
     ...(bruto || {}),
     mineracao: { ...CONFIG_PADRAO.mineracao, ...(bruto?.mineracao || {}) },
+    grafico: { ...CONFIG_GRAFICO_PADRAO, ...(bruto?.grafico || {}) },
   };
+  // Garante limites saudáveis (evita loops travados por config inválida)
+  if (c.grafico.intervaloMs < 500) c.grafico.intervaloMs = 500;
+  if (c.grafico.intervaloMs > 60000) c.grafico.intervaloMs = 60000;
+  if (c.grafico.amplitude < 0) c.grafico.amplitude = 0;
+  if (c.grafico.amplitude > 0.6) c.grafico.amplitude = 0.6;
+  if (c.grafico.picoAmplitude < c.grafico.amplitude) c.grafico.picoAmplitude = c.grafico.amplitude;
+  if (c.grafico.janela < 20) c.grafico.janela = 20;
+  if (c.grafico.janela > 240) c.grafico.janela = 240;
+  if (c.grafico.suavizacao < 0) c.grafico.suavizacao = 0;
+  if (c.grafico.suavizacao > 0.98) c.grafico.suavizacao = 0.98;
   c.itens = Array.isArray(bruto?.itens) && bruto!.itens.length ? bruto!.itens : ITENS_PADRAO;
   c.rigs = Array.isArray(bruto?.rigs) && bruto!.rigs.length ? bruto!.rigs : RIGS_PADRAO;
   c.banners = Array.isArray(bruto?.banners) && bruto!.banners.length ? bruto!.banners : BANNERS_PADRAO;

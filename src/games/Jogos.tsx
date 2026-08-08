@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Botao } from "../components/UI";
 import { fmtMAS, fmtNum as fmt } from "../lib/economia";
 import { useApp } from "../store/AppContext";
+import { useConfig } from "../store/ConfigContext";
 import { ControleAposta, Painel, Resultado, resultadoComRtp, useAposta, useRtp } from "./Comum";
 
 /* ---------------- CARA OU COROA ---------------- */
@@ -732,6 +733,156 @@ export function Torre() {
             })}
           </div>
         ))}
+      </div>
+    </Painel>
+  );
+}
+
+/* ---------------- DOUBLE NEON ---------------- */
+type CorDouble = "vermelho" | "preto" | "dourado";
+
+export function Double() {
+  const { registrarAposta, toast } = useApp();
+  const { cfg } = useConfig();
+  const conf = cfg.jogos.double;
+  const { aposta, setAposta, saldo, valida } = useAposta();
+  const [escolha, setEscolha] = useState<CorDouble>("vermelho");
+  const [girando, setGirando] = useState(false);
+  const [resultado, setResultado] = useState<CorDouble | null>(null);
+  const [historico, setHistorico] = useState<CorDouble[]>([]);
+
+  const multiplicador = escolha === "dourado" ? 14 : 2;
+  const jogar = () => {
+    if (!valida || girando) return toast("Aposta inválida", "erro");
+    if (aposta < conf.apostaMin || aposta > conf.apostaMax)
+      return toast(`Limites: ${fmtMAS(conf.apostaMin)} a ${fmtMAS(conf.apostaMax)}`, "erro");
+    setGirando(true);
+    setResultado(null);
+    setTimeout(() => {
+      const ganhou = resultadoComRtp(conf.rtp, multiplicador);
+      const outras = (["vermelho", "preto", "dourado"] as CorDouble[]).filter((c) => c !== escolha);
+      const r = ganhou ? escolha : outras[Math.floor(Math.random() * outras.length)];
+      setResultado(r);
+      setHistorico((h) => [r, ...h].slice(0, 12));
+      setGirando(false);
+      const premio = ganhou ? aposta * multiplicador : 0;
+      registrarAposta("Double Neon", aposta, premio);
+      toast(ganhou ? `Double: +${fmt(premio - aposta)} MAS` : `Saiu ${r}. Tente outra vez.`, ganhou ? "ok" : "erro");
+    }, 1500);
+  };
+
+  const cls = (c: CorDouble) =>
+    c === "vermelho"
+      ? "from-rose-500 to-red-800"
+      : c === "preto"
+        ? "from-slate-700 to-black"
+        : "from-amber-300 to-yellow-700";
+
+  return (
+    <Painel
+      titulo={conf.nome}
+      emoji="◉"
+      brilho="rgba(244,63,94,0.28)"
+      lateral={
+        <>
+          <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={girando} />
+          <div className="grid grid-cols-3 gap-2">
+            {(["vermelho", "preto", "dourado"] as CorDouble[]).map((c) => (
+              <button key={c} onClick={() => setEscolha(c)} className={`rounded-xl border p-2 text-xs font-black capitalize transition ${escolha === c ? "border-white/60 bg-white/15 text-white" : "border-white/10 bg-white/5 text-slate-400"}`}>
+                <span className={`mx-auto mb-1 block h-6 w-6 rounded-full bg-gradient-to-br ${cls(c)}`} />
+                {c}<br />{c === "dourado" ? "14x" : "2x"}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-500">RTP {Math.round(conf.rtp * 100)}% · margem {fmt((conf.houseEdge || 0) * 100, 1)}% · limites {fmtMAS(conf.apostaMin)}–{fmtMAS(conf.apostaMax)}</p>
+          <Botao className="w-full py-3" disabled={girando} onClick={jogar}>{girando ? "Girando..." : `Apostar no ${escolha}`}</Botao>
+          <div className="flex flex-wrap gap-1">{historico.map((c, i) => <span key={i} className={`h-5 w-5 rounded-full bg-gradient-to-br ${cls(c)}`} />)}</div>
+        </>
+      }
+    >
+      <div className="text-center">
+        <div className="relative mx-auto h-56 w-56">
+          <div className={`absolute inset-0 rounded-full bg-[conic-gradient(#e11d48_0_44%,#050507_44%_88%,#fbbf24_88%_100%)] shadow-[0_0_65px_-10px_rgba(244,63,94,.75)] ${girando ? "animate-[girar_.3s_linear_infinite]" : ""}`} />
+          <div className="absolute inset-8 flex items-center justify-center rounded-full border border-white/20 bg-slate-950 text-5xl font-black text-white">{resultado === "dourado" ? "×14" : resultado ? "×2" : "?"}</div>
+          <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-3xl text-white">▼</span>
+        </div>
+        <Resultado texto={girando ? "A roda está girando..." : resultado ? `Resultado: ${resultado}` : "Escolha uma cor"} tom={!resultado || girando ? "neutro" : resultado === escolha ? "ok" : "erro"} />
+      </div>
+    </Painel>
+  );
+}
+
+/* ---------------- PLINKO MATRIX ---------------- */
+const MULT_PLINKO = [5, 2, 1.2, 0.5, 0.2, 0.5, 1.2, 2, 5];
+
+export function Plinko() {
+  const { registrarAposta, toast } = useApp();
+  const { cfg } = useConfig();
+  const conf = cfg.jogos.plinko;
+  const { aposta, setAposta, saldo, valida } = useAposta();
+  const [caindo, setCaindo] = useState(false);
+  const [bucket, setBucket] = useState<number | null>(null);
+  const [passos, setPassos] = useState<number[]>([]);
+  const [historico, setHistorico] = useState<number[]>([]);
+
+  const jogar = () => {
+    if (!valida || caindo) return toast("Aposta inválida", "erro");
+    if (aposta < conf.apostaMin || aposta > conf.apostaMax)
+      return toast(`Limites: ${fmtMAS(conf.apostaMin)} a ${fmtMAS(conf.apostaMax)}`, "erro");
+    setCaindo(true);
+    setBucket(null);
+    let pos = 4;
+    const caminho: number[] = [pos];
+    for (let i = 0; i < 8; i++) {
+      pos += Math.random() < 0.5 ? -1 : 1;
+      pos = Math.max(0, Math.min(8, pos));
+      caminho.push(pos);
+    }
+    let etapa = 0;
+    const iv = setInterval(() => {
+      setPassos(caminho.slice(0, etapa + 1));
+      etapa++;
+      if (etapa >= caminho.length) {
+        clearInterval(iv);
+        const b = caminho[caminho.length - 1];
+        const fatorRtp = (conf.rtp || 0.95) / 0.95;
+        const mult = MULT_PLINKO[b] * fatorRtp;
+        const premio = aposta * mult;
+        setBucket(b);
+        setHistorico((h) => [mult, ...h].slice(0, 10));
+        setCaindo(false);
+        registrarAposta("Plinko Matrix", aposta, premio);
+        toast(mult >= 1 ? `Plinko ${fmt(mult, 2)}x: +${fmt(premio - aposta)} MAS` : `Plinko ${fmt(mult, 2)}x`, mult >= 1 ? "ok" : "erro");
+      }
+    }, 100);
+  };
+
+  return (
+    <Painel
+      titulo={conf.nome}
+      emoji="◆"
+      brilho="rgba(34,211,238,0.25)"
+      lateral={
+        <>
+          <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={caindo} />
+          <p className="text-[11px] text-slate-500">RTP {Math.round(conf.rtp * 100)}% · margem {fmt((conf.houseEdge || 0) * 100, 1)}% · limites {fmtMAS(conf.apostaMin)}–{fmtMAS(conf.apostaMax)}</p>
+          <Botao variante="neon" className="w-full py-3" disabled={caindo} onClick={jogar}>{caindo ? "Esfera caindo..." : "Soltar esfera"}</Botao>
+          <div className="flex flex-wrap gap-1">{historico.map((m, i) => <span key={i} className={`rounded px-2 py-1 text-[10px] font-black ${m >= 1 ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>{fmt(m, 2)}x</span>)}</div>
+        </>
+      }
+    >
+      <div className="mx-auto w-full max-w-lg">
+        <div className="relative h-72 rounded-2xl border border-cyan-500/20 bg-black/40 p-4">
+          {Array.from({ length: 8 }, (_, row) => (
+            <div key={row} className="absolute flex gap-8" style={{ top: 24 + row * 28, left: `calc(50% - ${(row + 1) * 18}px)` }}>
+              {Array.from({ length: row + 2 }, (_, p) => <span key={p} className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_10px_#22d3ee]" />)}
+            </div>
+          ))}
+          {caindo && passos.length > 0 && <span className="absolute h-4 w-4 rounded-full bg-fuchsia-300 shadow-[0_0_18px_#e879f9] transition-all duration-100" style={{ top: 12 + (passos.length - 1) * 28, left: `calc(${(passos[passos.length - 1] / 8) * 86 + 7}% - 8px)` }} />}
+          <div className="absolute inset-x-3 bottom-3 grid grid-cols-9 gap-1">
+            {MULT_PLINKO.map((m, i) => <div key={i} className={`rounded-md py-2 text-center text-[9px] font-black ${bucket === i ? "animate-pulse bg-fuchsia-500 text-white" : m >= 1 ? "bg-emerald-500/25 text-emerald-300" : "bg-rose-500/25 text-rose-300"}`}>{fmt(m * ((conf.rtp || .95) / .95), 1)}x</div>)}
+          </div>
+        </div>
       </div>
     </Painel>
   );

@@ -160,6 +160,11 @@ export interface JogoConfig {
   tag: string;
   /** RTP — chance de retorno/vitória (0-1). Ex.: 0.97 = 97%. */
   rtp: number;
+  /** Margem informativa/operacional da casa (0-1). */
+  houseEdge: number;
+  /** Limites individuais de aposta em MAS. */
+  apostaMin: number;
+  apostaMax: number;
   /** URL de imagem de capa exibida no lobby. */
   capa: string;
   /** URL de GIF/animacao de destaque. */
@@ -168,13 +173,15 @@ export interface JogoConfig {
 }
 
 export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo">[] = [
-  { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular", rtp: 0.99 },
-  { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia", rtp: 0.97 },
-  { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no 7️⃣", tag: "Jackpot", rtp: 0.885 },
-  { id: "dados", nome: "Dados", emoji: "🎲", desc: "Chance customizável", tag: "Clássico", rtp: 0.98 },
-  { id: "roleta", nome: "Roleta", emoji: "🎡", desc: "Vermelho ou preto?", tag: "Clássico", rtp: 0.97 },
-  { id: "moeda", nome: "Cara ou Coroa", emoji: "🪙", desc: "50/50 · 1.96x", tag: "Rápido", rtp: 0.98 },
-  { id: "torre", nome: "Torre da Sorte", emoji: "🗼", desc: "8 andares de tensão", tag: "Novo", rtp: 0.967 },
+  { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular", rtp: 0.99, houseEdge: 0.01, apostaMin: 1, apostaMax: 100000 },
+  { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia", rtp: 0.97, houseEdge: 0.03, apostaMin: 1, apostaMax: 100000 },
+  { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no sete", tag: "Jackpot", rtp: 0.885, houseEdge: 0.115, apostaMin: 1, apostaMax: 50000 },
+  { id: "dados", nome: "Dados", emoji: "🎲", desc: "Chance customizável", tag: "Clássico", rtp: 0.98, houseEdge: 0.02, apostaMin: 1, apostaMax: 100000 },
+  { id: "roleta", nome: "Roleta", emoji: "🎡", desc: "Vermelho ou preto?", tag: "Clássico", rtp: 0.97, houseEdge: 0.03, apostaMin: 1, apostaMax: 100000 },
+  { id: "moeda", nome: "Cara ou Coroa", emoji: "🪙", desc: "50/50 · 1.96x", tag: "Rápido", rtp: 0.98, houseEdge: 0.02, apostaMin: 1, apostaMax: 100000 },
+  { id: "torre", nome: "Torre da Sorte", emoji: "🗼", desc: "8 andares de tensão", tag: "Tensão", rtp: 0.967, houseEdge: 0.033, apostaMin: 1, apostaMax: 50000 },
+  { id: "double", nome: "Double Neon", emoji: "◉", desc: "Vermelho, preto ou dourado", tag: "Novo", rtp: 0.96, houseEdge: 0.04, apostaMin: 1, apostaMax: 75000 },
+  { id: "plinko", nome: "Plinko Matrix", emoji: "◆", desc: "Solte a esfera e multiplique", tag: "Novo", rtp: 0.95, houseEdge: 0.05, apostaMin: 1, apostaMax: 50000 },
 ];
 
 export function jogoPadrao(id: string): JogoConfig {
@@ -186,6 +193,9 @@ export function jogoPadrao(id: string): JogoConfig {
     desc: meta?.desc || "",
     tag: meta?.tag || "Clássico",
     rtp: meta?.rtp ?? 0.97,
+    houseEdge: meta?.houseEdge ?? 0.03,
+    apostaMin: meta?.apostaMin ?? 1,
+    apostaMax: meta?.apostaMax ?? 100000,
     capa: "",
     gif: "",
     ativo: true,
@@ -252,6 +262,51 @@ export interface ConfigMineracao {
   boostSegundos: number;
 }
 
+/* ------------------- CONFIG DO GRÁFICO ------------------- */
+/**
+ * Motor do gráfico de cotação exibido na Home/Carteira.
+ * - `modo` define o comportamento das amostras.
+ * - `intervaloMs` controla a frequência de atualização.
+ * - `amplitude` é o desvio relativo (0-1) permitido em torno da cotação oficial.
+ * - `picos` são forças ocasionais (bull/bear/neutro) aplicadas periodicamente.
+ * A cotação oficial (`cotacaoMAS`) segue sendo a fonte para toda conversão.
+ */
+export type ModoGrafico = "smooth" | "volatile" | "bull" | "bear" | "flat";
+
+export interface ConfigGrafico {
+  ativo: boolean;
+  modo: ModoGrafico;
+  /** Intervalo de atualização em milissegundos (>=500ms). */
+  intervaloMs: number;
+  /** Amplitude de variação relativa (0 a 1). Ex.: 0.02 = ±2%. */
+  amplitude: number;
+  /** Amplitude máxima permitida durante um pico (0 a 1). */
+  picoAmplitude: number;
+  /** Probabilidade de um pico ocorrer em cada tick (0 a 1). */
+  picoChance: number;
+  /** Número de amostras exibidas no gráfico. */
+  janela: number;
+  /** Suavização exponencial (0 = sem, 1 = trava total). */
+  suavizacao: number;
+  /** Preço mínimo permitido (opcional). */
+  precoMin: number;
+  /** Preço máximo permitido (0 = sem limite). */
+  precoMax: number;
+}
+
+export const CONFIG_GRAFICO_PADRAO: ConfigGrafico = {
+  ativo: true,
+  modo: "smooth",
+  intervaloMs: 2000,
+  amplitude: 0.015,
+  picoAmplitude: 0.05,
+  picoChance: 0.08,
+  janela: 80,
+  suavizacao: 0.55,
+  precoMin: 0.01,
+  precoMax: 0,
+};
+
 /* ------------------- CONFIG GLOBAL ------------------- */
 export interface ConfigGlobal {
   versao: number;
@@ -263,12 +318,15 @@ export interface ConfigGlobal {
   lojaAtiva: boolean;
   cassinoAtivo: boolean;
   saquesAtivos: boolean;
+  depositoMinimo: number;
   saqueMinimo: number;
   taxaConversao: number;
   /** Saldo em MAS creditado UMA ÚNICA VEZ no cadastro. */
   saldoInicial: number;
   /** Cotação do MAS em Reais — 1 MAS = R$ cotacaoMAS. */
   cotacaoMAS: number;
+  /** Configuração do gráfico dinâmico do MAS. */
+  grafico: ConfigGrafico;
   xpPorMAS: number;
   xpPorAposta: number;
   anuncio: string;
@@ -276,7 +334,7 @@ export interface ConfigGlobal {
 }
 
 export const CONFIG_PADRAO: ConfigGlobal = {
-  versao: 5,
+  versao: 6,
   itens: ITENS_PADRAO,
   rigs: RIGS_PADRAO,
   jogos: Object.fromEntries(JOGOS_META.map((j) => [j.id, jogoPadrao(j.id)])),
@@ -296,10 +354,12 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   lojaAtiva: true,
   cassinoAtivo: true,
   saquesAtivos: true,
-  saqueMinimo: 50,
+  depositoMinimo: 0.1,
+  saqueMinimo: 2.5,
   taxaConversao: 0.02,
   saldoInicial: 10,
   cotacaoMAS: 1.87,
+  grafico: CONFIG_GRAFICO_PADRAO,
   xpPorMAS: 0.2,
   xpPorAposta: 0.1,
   anuncio: "🎉 Bem-vindo à rede MAS! Recompensa diária liberada — colete todo dia e suba de nível.",

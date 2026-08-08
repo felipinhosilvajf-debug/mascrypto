@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PREMIOS_DIARIOS, useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { Barra, Botao, Card, Estat, Selo, Sparkline, Vazio } from "../components/UI";
+import { Barra, Botao, Card, Estat, GraficoStatus, Selo, Sparkline, Vazio } from "../components/UI";
 import { CONQUISTAS } from "../lib/types";
 import {
   fmtBRL,
@@ -20,13 +20,25 @@ const hoje = () => new Date().toISOString().slice(0, 10);
 const REDE_BASE = { usuarios: 1842, mas: 5213000, apostas: 128400, mineradores: 963 };
 
 export default function Dashboard({ ir }: { ir: (p: string) => void }) {
-  const { data, hashrate, detalheHash, precoMAS, historicoPreco, coletarDiario, listarUsuarios } = useApp();
+  const { data, hashrate, detalheHash, precoMAS, historicoPreco, proximoTickMs, coletarDiario, listarUsuarios } = useApp();
   const { cfg } = useConfig();
   const [modal, setModal] = useState(false);
   const [resgatando, setResgatando] = useState(false);
   const [bannerIdx, setBannerIdx] = useState(0);
   const [stats, setStats] = useState(REDE_BASE);
   const lastStats = useRef(0);
+  const [digitado, setDigitado] = useState("");
+
+  useEffect(() => {
+    const texto = "MINE. CONVERTA. EVOLUA.";
+    let i = 0;
+    const iv = setInterval(() => {
+      i++;
+      setDigitado(texto.slice(0, i));
+      if (i >= texto.length) clearInterval(iv);
+    }, 70);
+    return () => clearInterval(iv);
+  }, []);
 
   /* Estatísticas da plataforma em tempo real (usuários reais + rede). */
   const carregarStats = useCallback(async () => {
@@ -144,6 +156,44 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
           <p className="truncate text-sm text-fuchsia-100/90">{cfg.anuncio}</p>
         </div>
       )}
+
+      {/* ---------- HERO CYBERPUNK ---------- */}
+      <section className="relative min-h-[330px] overflow-hidden rounded-[32px] border border-fuchsia-500/20 bg-[#080515] px-5 py-10 shadow-[0_0_90px_-35px_rgba(217,70,239,.8)] sm:px-10">
+        <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(34,211,238,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(217,70,239,.18)_1px,transparent_1px)] [background-size:42px_42px] [transform:perspective(420px)_rotateX(55deg)_scale(1.5)] [transform-origin:bottom]" />
+        <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 animate-[flutua_8s_ease-in-out_infinite] rounded-full bg-fuchsia-600/25 blur-[80px]" />
+        <div className="pointer-events-none absolute -bottom-20 right-0 h-64 w-64 animate-[flutua_11s_ease-in-out_infinite_reverse] rounded-full bg-cyan-500/20 blur-[80px]" />
+        {Array.from({ length: 22 }, (_, i) => (
+          <span
+            key={i}
+            className="pointer-events-none absolute h-1 w-1 animate-[particula_5s_linear_infinite] rounded-full bg-cyan-300 shadow-[0_0_8px_#22d3ee]"
+            style={{ left: `${(i * 37) % 100}%`, top: `${(i * 53) % 100}%`, animationDelay: `${(i % 8) * -0.6}s`, animationDuration: `${4 + (i % 5)}s` }}
+          />
+        ))}
+        <div className="relative z-10 max-w-3xl">
+          <Selo tom="ciano">REDE MAS // PROTOCOLO ATIVO</Selo>
+          <h1 className="mt-5 text-4xl font-black leading-[.95] tracking-[-.04em] text-white sm:text-6xl">
+            MAS<span className="animate-[brilho_2s_ease-in-out_infinite] bg-gradient-to-r from-fuchsia-400 via-cyan-300 to-amber-300 bg-clip-text text-transparent drop-shadow-[0_0_22px_rgba(217,70,239,.8)]">CRYPTO</span>
+          </h1>
+          <p className="mt-3 h-8 font-mono text-lg font-black tracking-widest text-cyan-300 sm:text-2xl">
+            {digitado}<span className="animate-pulse text-fuchsia-400">_</span>
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-400">
+            Uma economia digital viva: mineração, mercado, cassino e progressão RPG sincronizados em tempo real.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Botao className="group overflow-hidden" onClick={() => ir("mineracao")}>
+              <span className="relative z-10">Iniciar mineração</span>
+            </Botao>
+            <Botao variante="neon" onClick={() => ir("carteira")}>Abrir carteira</Botao>
+            <Botao variante="ghost" onClick={() => ir("quarto")}>Entrar no quarto 3D</Botao>
+          </div>
+        </div>
+        <div className="pointer-events-none absolute right-8 top-1/2 hidden h-48 w-48 -translate-y-1/2 lg:block">
+          <div className="absolute inset-0 animate-[girar_12s_linear_infinite] rounded-full border border-dashed border-fuchsia-400/50" />
+          <div className="absolute inset-5 animate-[girar_8s_linear_infinite_reverse] rounded-full border-2 border-cyan-400/30" />
+          <div className="absolute inset-10 flex items-center justify-center rounded-full bg-fuchsia-500/10 text-6xl font-black text-white shadow-[0_0_50px_rgba(217,70,239,.35)]">M</div>
+        </div>
+      </section>
 
       {/* ---------- BANNERS & AVISOS (gerenciados pelo Admin) ---------- */}
       {banners.length > 0 && (
@@ -284,7 +334,12 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
           <div className="mt-3 h-24">
             <Sparkline dados={historicoPreco} cor={variacao >= 0 ? "#34d399" : "#fb7185"} />
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">Cotação ao vivo · atualiza a cada 2s</p>
+          <GraficoStatus
+            ativo={cfg.grafico.ativo}
+            intervaloMs={cfg.grafico.intervaloMs}
+            proximoMs={proximoTickMs}
+            modo={cfg.grafico.modo}
+          />
         </Card>
       </div>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { onSnapshot, collection } from "firebase/firestore";
+import { onSnapshot, collection, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import {
@@ -26,9 +26,10 @@ export default function SuporteView() {
   // Escuta os tickets (filtra por uid no cliente — evita índice composto no Firestore)
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(collection(db, "tickets"), (snap) => {
+    const q = query(collection(db, "tickets"), where("uid", "==", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
       const todos = snap.docs.map((d) => d.data() as Ticket);
-      setTickets(todos.filter((t) => t.uid === user.uid).sort((a, b) => b.atualizadoEm - a.atualizadoEm));
+      setTickets(todos.sort((a, b) => b.atualizadoEm - a.atualizadoEm));
     });
     return unsub;
   }, [user]);

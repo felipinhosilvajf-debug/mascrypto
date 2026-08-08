@@ -16,6 +16,12 @@ import {
 } from "../lib/catalogo";
 import { SLOTS, type UserData } from "../lib/types";
 import { STATUS_TICKET, responderTicket, setStatusTicket, type Ticket } from "../lib/tickets";
+import {
+  COLECAO_PAGAMENTOS,
+  aprovarPagamento,
+  recusarPagamento,
+  type PagamentoManual,
+} from "../lib/pagamentos";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, xpParaNivel } from "../lib/economia";
 import {
   Abas,
@@ -25,9 +31,11 @@ import {
   Card,
   Confirmar,
   Estat,
+  GraficoStatus,
   Input,
   Modal,
   Selo,
+  Sparkline,
   Switch,
   Textarea,
   Vazio,
@@ -92,88 +100,116 @@ export default function AdminView() {
 }
 
 /* ========================================================================
-   ABA OPERACIONAL — Saques + Pendências (tickets agora na aba própria)
+   ABA OPERACIONAL — depósitos e saques manuais em tempo real
    ======================================================================== */
-interface Saque {
-  id: string;
-  usuario: string;
-  valor: number;
-  chave: string;
-  status: "pendente" | "pago" | "recusado";
-  ts: number;
-}
-const LS_SAQUES = "mascrypto:admin:saques";
-
-function ler<T>(k: string, padrao: T): T {
-  try {
-    return JSON.parse(localStorage.getItem(k) || "null") ?? padrao;
-  } catch {
-    return padrao;
-  }
-}
-
 function Operacional() {
-  const { toast } = useApp();
-  const [saques, setSaques] = useState<Saque[]>(() =>
-    ler<Saque[]>(LS_SAQUES, [
-      { id: "s1", usuario: "cryptolud@mail.com", valor: 250, chave: "cpf 123.***.**-09", status: "pendente", ts: Date.now() - 9e7 },
-      { id: "s2", usuario: "luacheia@mail.com", valor: 80.5, chave: "email lua@mail.com", status: "pendente", ts: Date.now() - 2e7 },
-    ]),
-  );
+  const { user, toast } = useApp();
+  const { cfg } = useConfig();
+  const [pedidos, setPedidos] = useState<PagamentoManual[]>([]);
+  const [filtro, setFiltro] = useState<"pendente" | "deposito" | "saque" | "todos">("pendente");
+  const [recusar, setRecusar] = useState<PagamentoManual | null>(null);
+  const [motivo, setMotivo] = useState("");
+  const [processando, setProcessando] = useState<string | null>(null);
 
-  useEffect(() => localStorage.setItem(LS_SAQUES, JSON.stringify(saques)), [saques]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, COLECAO_PAGAMENTOS), (snap) => {
+      setPedidos(
+        snap.docs
+          .map((d) => d.data() as PagamentoManual)
+          .sort((a, b) => b.criadoEm - a.criadoEm),
+      );
+    });
+    return unsub;
+  }, []);
 
-  const pendentes = saques.filter((s) => s.status === "pendente");
+  const pendentes = pedidos.filter((p) => p.status === "pendente");
+  const visiveis = pedidos.filter((p) => {
+    if (filtro === "todos") return true;
+    if (filtro === "pendente") return p.status === "pendente";
+    return p.tipo === filtro;
+  });
+
+  const aprovar = async (p: PagamentoManual) => {
+    setProcessando(p.id);
+    try {
+      await aprovarPagamento(p, user?.email || "admin", cfg.cotacaoMAS);
+      toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque finalizado"} com sucesso`, "ok");
+    } catch (e) {
+      toast((e as Error).message || "Falha ao aprovar", "erro");
+    } finally {
+      setProcessando(null);
+    }
+  };
+
+  const confirmarRecusa = async () => {
+    if (!recusar) return;
+    setProcessando(recusar.id);
+    try {
+      await recusarPagamento(recusar, user?.email || "admin", motivo.trim() || "Dados não confirmados");
+      toast(recusar.tipo === "saque" ? "Saque recusado e valor integral estornado" : "Depósito recusado", "ok");
+      setRecusar(null);
+      setMotivo("");
+    } catch (e) {
+      toast((e as Error).message || "Falha ao recusar", "erro");
+    } finally {
+      setProcessando(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Estat emoji="💰" titulo="Saques pendentes" valor={String(pendentes.length)} cor="text-rose-300" />
-        <Estat emoji="⏳" titulo="Total a liberar" valor={fmtBRL(pendentes.reduce((a, b) => a + b.valor, 0))} cor="text-sky-300" />
-        <Estat emoji="🎧" titulo="Tickets abertos" valor="ver aba Suporte" cor="text-amber-300" />
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Estat emoji="⌛" titulo="Pendências" valor={String(pendentes.length)} cor="text-amber-300" />
+        <Estat emoji="+" titulo="Depósitos pendentes" valor={String(pendentes.filter((p) => p.tipo === "deposito").length)} cor="text-emerald-300" />
+        <Estat emoji="−" titulo="Saques pendentes" valor={String(pendentes.filter((p) => p.tipo === "saque").length)} cor="text-rose-300" />
+        <Estat emoji="R$" titulo="Volume pendente" valor={fmtBRL(pendentes.reduce((a, p) => a + p.valorBRL, 0))} cor="text-sky-300" />
       </div>
 
+      <Abas
+        abas={[
+          { id: "pendente" as const, nome: "Pendentes", emoji: "⌛", badge: pendentes.length },
+          { id: "deposito" as const, nome: "Depósitos", emoji: "+" },
+          { id: "saque" as const, nome: "Saques", emoji: "−" },
+          { id: "todos" as const, nome: "Histórico", emoji: "≡" },
+        ]}
+        ativa={filtro}
+        onChange={setFiltro}
+      />
+
       <Card>
-        <h3 className="mb-3 font-black text-white">💰 Saques via PIX</h3>
-        {saques.length === 0 ? (
-          <Vazio emoji="✅" titulo="Nenhum saque" />
+        {visiveis.length === 0 ? (
+          <Vazio emoji="✓" titulo="Nenhuma solicitação nesta fila" />
         ) : (
           <div className="space-y-2">
-            {saques.map((s) => (
-              <div
-                key={s.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-bold text-white">{fmtBRL(s.valor)}</p>
-                  <p className="truncate text-xs text-slate-400">
-                    {s.usuario} · {s.chave}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Selo tom={s.status === "pago" ? "verde" : s.status === "recusado" ? "vermelho" : "ouro"}>
-                    {s.status}
-                  </Selo>
-                  {s.status === "pendente" && (
-                    <>
-                      <Botao
-                        variante="sucesso"
-                        className="px-3 py-1.5 text-xs"
-                        onClick={() => {
-                          setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "pago" } : x)));
-                          toast("Saque marcado como pago", "ok");
-                        }}
-                      >
-                        Pagar
+            {visiveis.map((p) => (
+              <div key={p.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl text-xl font-black ${p.tipo === "deposito" ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>
+                    {p.tipo === "deposito" ? "+" : "−"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-black capitalize text-white">{p.tipo} · {fmtBRL(p.valorBRL)}</p>
+                      <Selo tom={p.status === "aprovado" ? "verde" : p.status === "recusado" ? "vermelho" : "ouro"}>{p.status}</Selo>
+                      {p.tipo === "deposito" && <Selo tom="ciano">Crédito em {p.destino}</Selo>}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">{p.nome} · {p.email} · {new Date(p.criadoEm).toLocaleString("pt-BR")}</p>
+                    {p.chavePix && <p className="mt-1 text-xs text-sky-300">Chave PIX: {p.chavePix}</p>}
+                    {p.comprovante && (
+                      <p className="mt-1 break-all text-xs text-fuchsia-300">
+                        Comprovante: {p.comprovante.startsWith("http") ? <a href={p.comprovante} target="_blank" rel="noreferrer" className="underline">abrir link</a> : p.comprovante}
+                      </p>
+                    )}
+                    {p.observacao && <p className="mt-1 text-xs text-slate-500">{p.observacao}</p>}
+                    {p.motivoRecusa && <p className="mt-1 text-xs text-rose-300">Motivo: {p.motivoRecusa}</p>}
+                  </div>
+                  {p.status === "pendente" && (
+                    <div className="flex shrink-0 gap-2">
+                      <Botao variante="sucesso" disabled={processando === p.id} onClick={() => aprovar(p)}>
+                        {p.tipo === "deposito" ? "Aprovar e creditar" : "Confirmar transferência"}
                       </Botao>
-                      <Botao
-                        variante="perigo"
-                        className="px-3 py-1.5 text-xs"
-                        onClick={() => setSaques((v) => v.map((x) => (x.id === s.id ? { ...x, status: "recusado" } : x)))}
-                      >
-                        Recusar
-                      </Botao>
-                    </>
+                      <Botao variante="perigo" disabled={processando === p.id} onClick={() => setRecusar(p)}>Recusar</Botao>
+                    </div>
                   )}
                 </div>
               </div>
@@ -181,6 +217,23 @@ function Operacional() {
           </div>
         )}
       </Card>
+
+      <Modal aberto={!!recusar} onFechar={() => setRecusar(null)} titulo={`Recusar ${recusar?.tipo || "solicitação"}`}>
+        <p className="text-sm text-slate-300">
+          {recusar?.tipo === "saque"
+            ? `${fmtBRL(recusar?.valorBRL || 0)} serão estornados integralmente para a carteira BRL do usuário.`
+            : "O depósito será cancelado sem crédito."}
+        </p>
+        <div className="mt-3">
+          <Campo label="Motivo da recusa (visível ao usuário)">
+            <Textarea rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: comprovante inválido" />
+          </Campo>
+        </div>
+        <div className="mt-4 flex gap-2">
+          <Botao variante="ghost" className="flex-1" onClick={() => setRecusar(null)}>Cancelar</Botao>
+          <Botao variante="perigo" className="flex-1" onClick={confirmarRecusa}>Confirmar recusa</Botao>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -862,6 +915,18 @@ function EditorJogo({
         <Campo label="Descrição curta">
           <Textarea rows={2} value={x.desc} onChange={(e) => set("desc", e.target.value)} />
         </Campo>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Campo label="Aposta mínima (MAS)">
+            <Input type="number" min={0.01} step="0.01" value={x.apostaMin} onChange={(e) => set("apostaMin", Math.max(0.01, Number(e.target.value)))} />
+          </Campo>
+          <Campo label="Aposta máxima (MAS)">
+            <Input type="number" min={1} step="1" value={x.apostaMax} onChange={(e) => set("apostaMax", Math.max(x.apostaMin, Number(e.target.value)))} />
+          </Campo>
+          <Campo label="Margem da casa (%)">
+            <Input type="number" min={0} max={50} step="0.1" value={Math.round((x.houseEdge || 0) * 1000) / 10} onChange={(e) => set("houseEdge", Math.max(0, Math.min(0.5, Number(e.target.value) / 100)))} />
+          </Campo>
+        </div>
 
         <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.06] p-4">
           <div className="flex items-center justify-between">
@@ -1581,6 +1646,8 @@ function ConfigAdmin() {
         </div>
       </Card>
 
+      <GraficoAdmin />
+
       <Card>
         <h3 className="font-black text-white">⚙️ Chaves gerais da plataforma</h3>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -1590,8 +1657,11 @@ function ConfigAdmin() {
             <Switch ligado={cfg.saquesAtivos} onChange={(v) => salvarConfig({ saquesAtivos: v })} rotulo="Saques liberados" />
           </div>
           <div className="space-y-3">
+            <Campo label="Depósito mínimo (R$)">
+              <Input type="number" min={0.01} step="0.01" value={cfg.depositoMinimo} onChange={(e) => salvarConfig({ depositoMinimo: Math.max(0.01, Number(e.target.value)) })} />
+            </Campo>
             <Campo label="Saque mínimo (R$)">
-              <Input type="number" value={cfg.saqueMinimo} onChange={(e) => salvarConfig({ saqueMinimo: Number(e.target.value) })} />
+              <Input type="number" min={0.01} step="0.01" value={cfg.saqueMinimo} onChange={(e) => salvarConfig({ saqueMinimo: Math.max(0.01, Number(e.target.value)) })} />
             </Campo>
             <Campo label="Taxa de conversão (%)">
               <Input
@@ -1633,5 +1703,191 @@ function ConfigAdmin() {
         }}
       />
     </div>
+  );
+}
+
+/* ========================================================================
+   PAINEL DEDICADO AO GRÁFICO DINÂMICO — controlado 100% pelo Admin
+   ======================================================================== */
+function GraficoAdmin() {
+  const { cfg, salvarConfig } = useConfig();
+  const { historicoPreco, proximoTickMs, precoMAS } = useApp();
+  const g = cfg.grafico;
+  const set = (patch: Partial<typeof g>) => salvarConfig({ grafico: { ...g, ...patch } });
+
+  const modos: { id: typeof g.modo; nome: string; desc: string }[] = [
+    { id: "smooth", nome: "Suave", desc: "Oscilação equilibrada" },
+    { id: "volatile", nome: "Volátil", desc: "Ruído amplificado e picos" },
+    { id: "bull", nome: "Alta", desc: "Tendência de subida contínua" },
+    { id: "bear", nome: "Baixa", desc: "Tendência de queda contínua" },
+    { id: "flat", nome: "Estável", desc: "Variação mínima em torno do preço" },
+  ];
+
+  return (
+    <Card glow className="border-fuchsia-500/25">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-black text-white">📈 Gráfico dinâmico do MAS</h3>
+          <p className="text-sm text-slate-400">
+            Controle a amplitude, os picos, o modo de mercado e o intervalo de atualização exibidos na Home e na
+            Carteira. Salvo em <code className="text-fuchsia-300">config/global.grafico</code> e propagado em tempo real.
+          </p>
+        </div>
+        <Switch ligado={g.ativo} onChange={(v) => set({ ativo: v })} rotulo={g.ativo ? "Rodando" : "Pausado"} />
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Cotação oficial</p>
+            <p className="text-2xl font-black text-white">R$ {fmtNum(precoMAS, 4)}</p>
+          </div>
+          <p className="text-[11px] text-slate-500">Amostras exibidas: {g.janela} · Modo atual: {g.modo}</p>
+        </div>
+        <div className="mt-3 h-24">
+          <Sparkline dados={historicoPreco} cor="#e879f9" />
+        </div>
+        <GraficoStatus ativo={g.ativo} intervaloMs={g.intervaloMs} proximoMs={proximoTickMs} modo={g.modo} />
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Modo do mercado</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {modos.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => set({ modo: m.id })}
+              className={`rounded-xl border p-2 text-left text-xs transition ${
+                g.modo === m.id
+                  ? "border-fuchsia-400 bg-fuchsia-500/20 text-white"
+                  : "border-white/10 bg-white/[0.04] text-slate-400 hover:text-white"
+              }`}
+            >
+              <p className="font-black">{m.nome}</p>
+              <p className="text-[10px] text-slate-500">{m.desc}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Campo label="Intervalo de atualização (s)" dica="Entre 0,5 e 60 segundos">
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={0.5}
+              max={10}
+              step={0.5}
+              value={g.intervaloMs / 1000}
+              onChange={(e) => set({ intervaloMs: Number(e.target.value) * 1000 })}
+              className="flex-1 accent-fuchsia-500"
+            />
+            <span className="w-14 text-right text-xs font-black text-white">{fmtNum(g.intervaloMs / 1000, 1)}s</span>
+          </div>
+          <div className="mt-1 flex gap-1">
+            {[1, 2, 3, 5, 10].map((s) => (
+              <button
+                key={s}
+                onClick={() => set({ intervaloMs: s * 1000 })}
+                className={`rounded-md border px-2 py-0.5 text-[10px] font-bold transition ${
+                  g.intervaloMs === s * 1000
+                    ? "border-fuchsia-400 bg-fuchsia-500/20 text-white"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:text-white"
+                }`}
+              >
+                {s}s
+              </button>
+            ))}
+          </div>
+        </Campo>
+        <Campo label="Amplitude base (%)" dica="Variação típica em cada tick">
+          <Input
+            type="number"
+            min={0}
+            max={60}
+            step={0.1}
+            value={g.amplitude * 100}
+            onChange={(e) => set({ amplitude: Math.max(0, Math.min(0.6, Number(e.target.value) / 100)) })}
+          />
+        </Campo>
+        <Campo label="Amplitude do pico (%)" dica="Deslocamento máximo em picos ocasionais">
+          <Input
+            type="number"
+            min={0}
+            max={80}
+            step={0.5}
+            value={g.picoAmplitude * 100}
+            onChange={(e) => set({ picoAmplitude: Math.max(g.amplitude, Math.min(0.8, Number(e.target.value) / 100)) })}
+          />
+        </Campo>
+        <Campo label="Frequência de picos (%)" dica="Chance de um pico em cada tick">
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(g.picoChance * 100)}
+            onChange={(e) => set({ picoChance: Math.max(0, Math.min(1, Number(e.target.value) / 100)) })}
+          />
+        </Campo>
+        <Campo label="Suavização" dica="0 = ruído puro · 0,98 = quase parado">
+          <Input
+            type="number"
+            min={0}
+            max={0.98}
+            step={0.05}
+            value={g.suavizacao}
+            onChange={(e) => set({ suavizacao: Math.max(0, Math.min(0.98, Number(e.target.value))) })}
+          />
+        </Campo>
+        <Campo label="Janela de amostras" dica="Quantidade de pontos no gráfico">
+          <Input
+            type="number"
+            min={20}
+            max={240}
+            step={5}
+            value={g.janela}
+            onChange={(e) => set({ janela: Math.max(20, Math.min(240, Number(e.target.value))) })}
+          />
+        </Campo>
+        <Campo label="Preço mínimo (R$)" dica="Piso permitido para as amostras">
+          <Input
+            type="number"
+            min={0}
+            step={0.01}
+            value={g.precoMin}
+            onChange={(e) => set({ precoMin: Math.max(0, Number(e.target.value)) })}
+          />
+        </Campo>
+        <Campo label="Preço máximo (R$)" dica="0 = sem teto">
+          <Input
+            type="number"
+            min={0}
+            step={0.01}
+            value={g.precoMax}
+            onChange={(e) => set({ precoMax: Math.max(0, Number(e.target.value)) })}
+          />
+        </Campo>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Presets rápidos:</span>
+        {[
+          { id: "calmo", label: "Mercado calmo", patch: { modo: "smooth" as const, amplitude: 0.008, picoAmplitude: 0.02, picoChance: 0.04, intervaloMs: 3000 } },
+          { id: "ativo", label: "Padrão", patch: { modo: "smooth" as const, amplitude: 0.015, picoAmplitude: 0.05, picoChance: 0.08, intervaloMs: 2000 } },
+          { id: "louco", label: "Explosivo", patch: { modo: "volatile" as const, amplitude: 0.035, picoAmplitude: 0.12, picoChance: 0.18, intervaloMs: 1500 } },
+          { id: "pump", label: "Pump contínuo", patch: { modo: "bull" as const, amplitude: 0.02, picoAmplitude: 0.08, picoChance: 0.15, intervaloMs: 2000 } },
+          { id: "dump", label: "Crash contínuo", patch: { modo: "bear" as const, amplitude: 0.02, picoAmplitude: 0.08, picoChance: 0.15, intervaloMs: 2000 } },
+        ].map((p) => (
+          <button
+            key={p.id}
+            onClick={() => set(p.patch)}
+            className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-slate-300 transition hover:border-fuchsia-400/40 hover:text-white"
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+    </Card>
   );
 }
