@@ -30,6 +30,11 @@ body {
   50% { transform: translateY(-18px) translateX(10px); }
 }
 
+@keyframes pixelPan {
+  0% { background-position: 0 0; }
+  100% { background-position: 44px 44px; }
+}
+
 @keyframes girar {
   to { transform: rotate(360deg); }
 }
@@ -59,10 +64,6 @@ body {
 }
 
 /* Neon pulse ring */
-@keyframes neonRing {
-  0%, 100% { box-shadow: 0 0 8px 2px rgba(217,70,239,0.5), 0 0 20px 6px rgba(217,70,239,0.18); }
-  50%       { box-shadow: 0 0 22px 6px rgba(217,70,239,0.9), 0 0 50px 15px rgba(34,211,238,0.22); }
-}
 
 @keyframes jackpotShake {
   0%,100% { transform: translateX(0); }

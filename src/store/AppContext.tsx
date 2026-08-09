@@ -124,7 +124,7 @@ interface Ctx {
   posicionarNoQuarto: (itemId: string, x: number, y: number) => void;
   removerDoQuarto: (itemId: string) => void;
   hashrate: number;
-  detalheHash: { rigs: number; itens: number; hardwareSlots: number; bonusPct: number; total: number };
+  detalheHash: { ring: number; itens: number; hardwareSlots: number; bonusPct: number; total: number };
   precoMAS: number;
   /** Cotação base (âncora para cálculos financeiros — sem oscilação gráfica). */
   precoMASBase: number;
@@ -141,20 +141,36 @@ interface Ctx {
 const AppCtx = createContext<Ctx>(null as unknown as Ctx);
 export const useApp = () => useContext(AppCtx);
 
-/** Hashrate total — FONTE ÚNICA (rigs + itens equipados + bônus). */
-export function calcularHash(d: UserData | null, cfg: ConfigGlobal) {
-  if (!d) return { rigs: 0, itens: 0, hardwareSlots: 0, bonusPct: 0, total: 0 };
-  let rigs = 0;
-  for (const r of cfg.rigs) rigs += (d.rigs[r.id] || 0) * (r.ativo === false ? 0 : r.taxa);
+/** Hashrate total — FONTE ÚNICA (Ring automática + itens equipados + bônus). */
+/**
+ * Oscilação determinística por item (usa `tick` e id do item como semente).
+ * Retorna o multiplicador para o H/s base: 1 ± hsOscilacao.
+ */
+function oscilacaoItem(itemId: string, tick: number, osc: number, intervaloS: number): number {
+  if (!osc || osc <= 0) return 1;
+  const janela = Math.max(1, Math.floor((tick / 1000) / Math.max(0.5, intervaloS)));
+  const semente = Array.from(itemId).reduce((a, c) => a + c.charCodeAt(0), 0) + janela;
+  // pseudorandom em [-1,1] estável dentro da janela de tempo
+  const r = Math.sin(semente * 12.9898) * 43758.5453;
+  const n = (r - Math.floor(r)) * 2 - 1;
+  return 1 + n * osc;
+}
+
+export function calcularHash(d: UserData | null, cfg: ConfigGlobal, tick = 0) {
+  if (!d) return { ring: 0, itens: 0, hardwareSlots: 0, bonusPct: 0, total: 0 };
+  const ring = cfg.mineracao.ringAtiva === false ? 0 : Math.max(0, cfg.mineracao.ringHashrate || 0);
 
   let itens = 0;
   let bonusPct = (nivelPorXp(d.xp) - 1) * 0.02;
+
+  const aplicarOsc = (it: { id: string; hs: number; hsOscilacao?: number; hsIntervaloS?: number }) =>
+    (it.hs || 0) * oscilacaoItem(it.id, tick, it.hsOscilacao || 0, it.hsIntervaloS || 4);
 
   // Equipamentos vestidos (slots RPG — roupas/pets/acessórios)
   for (const slot of Object.keys(d.equipados || {})) {
     const it = cfg.itens.find((i) => i.id === d.equipados[slot]);
     if (!it || !it.ativo) continue;
-    itens += it.hs || 0;
+    itens += aplicarOsc(it);
     bonusPct += it.bonusPct || 0;
   }
 
@@ -163,12 +179,12 @@ export function calcularHash(d: UserData | null, cfg: ConfigGlobal) {
   for (const itemId of Object.keys(d.slotsHardware || {})) {
     const it = cfg.itens.find((i) => i.id === itemId);
     if (!it || !it.ativo) continue;
-    hardwareSlots += it.hs || 0;
+    hardwareSlots += aplicarOsc(it);
     bonusPct += it.bonusPct || 0;
   }
 
-  const total = (rigs + itens + hardwareSlots) * (1 + bonusPct) * (cfg.mineracao.multiplicadorGlobal || 1);
-  return { rigs, itens, hardwareSlots, bonusPct, total };
+  const total = (ring + itens + hardwareSlots) * (1 + bonusPct) * (cfg.mineracao.multiplicadorGlobal || 1);
+  return { ring, itens, hardwareSlots, bonusPct, total };
 }
 
 /** Pós-processamento comum a cliente e servidor: nível ← XP, conquistas, timestamp. */
@@ -491,7 +507,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [atualizar, toast],
   );
 
-  const detalheHash = useMemo(() => calcularHash(data, cfg), [data, cfg]);
+  // Tick para animar a oscilação de H/s dos itens configurados no Admin
+  const [oscTick, setOscTick] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => setOscTick((t) => t + 1000), 1000);
+    return () => clearInterval(i);
+  }, []);
+  const detalheHash = useMemo(() => calcularHash(data, cfg, oscTick), [data, cfg, oscTick]);
   const hashrate = detalheHash.total;
 
   /* ============================================================
@@ -815,6 +837,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!cfg.lojaAtiva) return toast("A loja está temporariamente fechada", "erro"), false;
       if (!item.ativo) return toast("Item indisponível no momento", "erro"), false;
       if (d.itens.includes(item.id)) return toast("Você já possui este item", "info"), false;
+      const reqLoja = cfg.requisitosNivel?.comprarLoja || 1;
+      if (nivelPorXp(d.xp) < reqLoja)
+        return toast(`A Loja exige nível ${reqLoja}. Seu nível: ${nivelPorXp(d.xp)}`, "erro"), false;
       if (nivelPorXp(d.xp) < item.nivelMin)
         return toast(`Requer nível ${item.nivelMin} — você é nível ${nivelPorXp(d.xp)}`, "erro"), false;
       if (item.estoque === 0) return toast("Item esgotado", "erro"), false;
@@ -822,7 +847,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       atualizar((u) => {
         // revalidação atômica no servidor
-        if (u.itens.includes(item.id) || u.saldo < item.preco || nivelPorXp(u.xp) < item.nivelMin) return u;
+        const nivelAtual = nivelPorXp(u.xp);
+        if (u.itens.includes(item.id) || u.saldo < item.preco || nivelAtual < item.nivelMin || nivelAtual < reqLoja) return u;
         return {
           ...u,
           saldo: u.saldo - item.preco,
@@ -848,6 +874,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!d.itens.includes(itemId)) return toast("Você não possui este item", "erro");
       if (nivelPorXp(d.xp) < item.nivelMin) return toast(`Requer nível ${item.nivelMin}`, "erro");
       const slot = item.slot || infoCategoria(item.categoria).slot;
+      if (slot === "gpu" || slot === "periferico")
+        return toast("Hardware deve ser instalado nos slots do Quarto, não no Menu RPG", "info");
       if (!slot) return toast("Este item é decorativo — posicione-o no quarto", "info");
       atualizar((u) =>
         u.itens.includes(itemId) ? { ...u, equipados: { ...u.equipados, [slot]: itemId } } : u,

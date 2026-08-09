@@ -12,7 +12,6 @@ import {
   type Categoria,
   type ItemLoja,
   type JogoConfig,
-  type Rig,
 } from "../lib/catalogo";
 import { SLOTS, type UserData } from "../lib/types";
 import { STATUS_TICKET, responderTicket, setStatusTicket, type Ticket } from "../lib/tickets";
@@ -53,6 +52,7 @@ type AbaAdmin =
   | "xp"
   | "recompensa"
   | "bilheteria"
+  | "landing"
   | "config";
 
 const ABAS = [
@@ -66,6 +66,7 @@ const ABAS = [
   { id: "xp" as const, nome: "XP e Níveis", emoji: "⭐" },
   { id: "recompensa" as const, nome: "Recompensa Diária", emoji: "🎁" },
   { id: "bilheteria" as const, nome: "Bilheteria", emoji: "🎟️" },
+  { id: "landing" as const, nome: "Index / Login", emoji: "🖼️" },
   { id: "config" as const, nome: "Configurações", emoji: "⚙️" },
 ];
 
@@ -80,7 +81,7 @@ export default function AdminView() {
           <div>
             <h2 className="text-2xl font-black text-white">🛡️ Painel Administrativo</h2>
             <p className="text-sm text-slate-400">
-              Regras e configurações centralizadas — persistidas no Firestore e refletidas em tempo real para todos os usuários.
+              Regras e configurações centralizadas — aplicadas em tempo real para todos os usuários.
             </p>
           </div>
           <Selo tom={configOnline ? "verde" : "ouro"}>
@@ -101,6 +102,7 @@ export default function AdminView() {
       {aba === "xp" && <XpAdmin />}
       {aba === "recompensa" && <RecompensaAdmin />}
       {aba === "bilheteria" && <BilheteriaAdmin />}
+      {aba === "landing" && <LandingAdmin />}
       {aba === "config" && <ConfigAdmin />}
     </div>
   );
@@ -761,6 +763,25 @@ function EditorItem({
             <Campo label="Bônus percentual (%)" dica="Ex.: 5 = +5% de mineração">
               <Input type="number" step="1" value={Math.round((i.bonusPct || 0) * 100)} onChange={(e) => set("bonusPct", Number(e.target.value) / 100)} />
             </Campo>
+            <Campo label="Oscilação (%)" dica="0 = fixo · 20 = varia ±20% do H/s a cada intervalo">
+              <Input
+                type="number"
+                step="1"
+                min={0}
+                max={80}
+                value={Math.round((i.hsOscilacao || 0) * 100)}
+                onChange={(e) => set("hsOscilacao", Math.max(0, Math.min(0.8, Number(e.target.value) / 100)))}
+              />
+            </Campo>
+            <Campo label="Intervalo de oscilação (s)">
+              <Input
+                type="number"
+                min={1}
+                step="1"
+                value={i.hsIntervaloS || 4}
+                onChange={(e) => set("hsIntervaloS", Math.max(1, Math.floor(Number(e.target.value) || 4)))}
+              />
+            </Campo>
           </div>
         ) : (
           <p className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
@@ -932,16 +953,105 @@ function EditorJogo({
           <Textarea rows={2} value={x.desc} onChange={(e) => set("desc", e.target.value)} />
         </Campo>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           <Campo label="Aposta mínima (MAS)">
             <Input type="number" min={0.01} step="0.01" value={x.apostaMin} onChange={(e) => set("apostaMin", Math.max(0.01, Number(e.target.value)))} />
           </Campo>
           <Campo label="Aposta máxima (MAS)">
             <Input type="number" min={1} step="1" value={x.apostaMax} onChange={(e) => set("apostaMax", Math.max(x.apostaMin, Number(e.target.value)))} />
           </Campo>
+          <Campo label="Aposta padrão (MAS)" dica="Valor pré-digitado ao entrar no jogo">
+            <Input
+              type="number"
+              min={x.apostaMin}
+              step="1"
+              value={x.apostaPadrao ?? 50}
+              onChange={(e) => set("apostaPadrao", Math.max(x.apostaMin, Number(e.target.value) || 1))}
+            />
+          </Campo>
           <Campo label="Margem da casa (%)">
             <Input type="number" min={0} max={50} step="0.1" value={Math.round((x.houseEdge || 0) * 1000) / 10} onChange={(e) => set("houseEdge", Math.max(0, Math.min(0.5, Number(e.target.value) / 100)))} />
           </Campo>
+        </div>
+
+        {/* Atalhos configuráveis */}
+        <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/[0.05] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-black uppercase tracking-wider text-fuchsia-300/80">
+              Atalhos do painel de aposta
+            </p>
+            <button
+              onClick={() =>
+                set(
+                  "atalhos",
+                  [...(x.atalhos || []), { label: "50", valor: 50 }] as JogoConfig["atalhos"],
+                )
+              }
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-bold text-white hover:bg-white/10"
+            >
+              + Adicionar
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {(x.atalhos || []).map((a, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                <input
+                  value={a.label}
+                  onChange={(e) => {
+                    const arr = [...(x.atalhos || [])];
+                    arr[i] = { ...arr[i], label: e.target.value };
+                    set("atalhos", arr as JogoConfig["atalhos"]);
+                  }}
+                  className="w-20 rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1 text-xs text-white outline-none"
+                  placeholder="Rótulo"
+                />
+                <select
+                  value={a.op || "valor"}
+                  onChange={(e) => {
+                    const arr = [...(x.atalhos || [])];
+                    if (e.target.value === "valor") arr[i] = { label: a.label, valor: a.valor ?? 100 };
+                    else arr[i] = { label: a.label, op: e.target.value as "half" | "double" | "max" };
+                    set("atalhos", arr as JogoConfig["atalhos"]);
+                  }}
+                  className="rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1 text-xs text-white outline-none"
+                >
+                  <option value="valor">Valor fixo</option>
+                  <option value="half">Metade (½)</option>
+                  <option value="double">Dobro (2×)</option>
+                  <option value="max">Máximo (MAX)</option>
+                </select>
+                {!a.op && (
+                  <input
+                    type="number"
+                    min={1}
+                    value={a.valor ?? 100}
+                    onChange={(e) => {
+                      const arr = [...(x.atalhos || [])];
+                      arr[i] = { label: a.label, valor: Math.max(1, Number(e.target.value) || 1) };
+                      set("atalhos", arr as JogoConfig["atalhos"]);
+                    }}
+                    className="w-24 rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1 text-xs text-white outline-none"
+                    placeholder="MAS"
+                  />
+                )}
+                <button
+                  onClick={() => {
+                    const arr = [...(x.atalhos || [])];
+                    arr.splice(i, 1);
+                    set("atalhos", arr as JogoConfig["atalhos"]);
+                  }}
+                  className="ml-auto rounded-lg bg-rose-500/15 px-2 py-1 text-xs font-bold text-rose-300 hover:bg-rose-500/25"
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
+            {(!x.atalhos || x.atalhos.length === 0) && (
+              <p className="text-[11px] text-slate-500">
+                Nenhum atalho configurado — o jogo usará os atalhos padrão (½, 2×, 100, 1k, MAX).
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.06] p-4">
@@ -1362,12 +1472,10 @@ function TicketsAdmin() {
    ABA MINERAÇÃO
    ======================================================================== */
 function MineracaoAdmin() {
-  const { cfg, salvarConfig, salvarRig, excluirRig } = useConfig();
+  const { cfg, salvarConfig } = useConfig();
   const { toast } = useApp();
   const m = cfg.mineracao;
   const set = (patch: Partial<typeof m>) => salvarConfig({ mineracao: { ...m, ...patch } });
-  const [rig, setRig] = useState<Rig | null>(null);
-  const [excluir, setExcluir] = useState<Rig | null>(null);
 
   return (
     <div className="space-y-4">
@@ -1404,6 +1512,40 @@ function MineracaoAdmin() {
         </div>
       </Card>
 
+      <Card className="border-cyan-500/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-white">⚡ Ring Automática Global</h3>
+            <p className="text-sm text-slate-400">
+              Unidade base invisível de mineração da rede MAScrypto. Todos os usuários mineram com esta Ring mesmo
+              sem itens, desde que esteja ativa.
+            </p>
+          </div>
+          <Switch
+            ligado={m.ringAtiva !== false}
+            onChange={(v) => set({ ringAtiva: v })}
+            rotulo={m.ringAtiva !== false ? "Ring global ativa" : "Ring indisponível"}
+          />
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Campo label="Nome da Ring">
+            <Input value={m.ringNome || "Ring MAS Padrão"} onChange={(e) => set({ ringNome: e.target.value })} />
+          </Campo>
+          <Campo label="Hashrate Base (H/s)">
+            <Input
+              type="number"
+              step="0.0001"
+              min={0}
+              value={m.ringHashrate ?? 0}
+              onChange={(e) => set({ ringHashrate: Math.max(0, Number(e.target.value)) })}
+            />
+          </Campo>
+          <Campo label="Descrição">
+            <Input value={m.ringDesc || ""} onChange={(e) => set({ ringDesc: e.target.value })} />
+          </Campo>
+        </div>
+      </Card>
+
       <Card>
         <h3 className="font-black text-white">⚙️ Mineração automática</h3>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1413,104 +1555,42 @@ function MineracaoAdmin() {
           <Campo label="Capacidade (horas)">
             <Input type="number" value={m.capHoras} onChange={(e) => set({ capHoras: Number(e.target.value) })} />
           </Campo>
+        </div>
+      </Card>
+
+      <Card className="border-amber-400/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-black text-white">🔥 Boost de Mineração</h3>
+          <Switch
+            ligado={m.boostAtivo !== false}
+            onChange={(v) => set({ boostAtivo: v })}
+            rotulo={m.boostAtivo !== false ? "Boost habilitado" : "Boost desabilitado"}
+          />
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo label="Preço do boost (MAS)">
             <Input type="number" value={m.boostPreco} onChange={(e) => set({ boostPreco: Number(e.target.value) })} />
           </Campo>
-          <Campo label="Multiplicador do boost">
+          <Campo label="Multiplicador">
             <Input type="number" value={m.boostMult} onChange={(e) => set({ boostMult: Number(e.target.value) })} />
+          </Campo>
+          <Campo label="Duração (segundos)">
+            <Input type="number" value={m.boostSegundos} onChange={(e) => set({ boostSegundos: Number(e.target.value) })} />
+          </Campo>
+          <Campo label="Cor do botão">
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={m.boostCor || "#f59e0b"}
+                onChange={(e) => set({ boostCor: e.target.value })}
+                className="h-10 w-14 cursor-pointer rounded-lg border border-white/10 bg-transparent"
+              />
+              <Input value={m.boostCor || "#f59e0b"} onChange={(e) => set({ boostCor: e.target.value })} />
+            </div>
           </Campo>
         </div>
       </Card>
 
-      <Card>
-        <div className="flex items-center justify-between">
-          <h3 className="font-black text-white">🏭 Rigs da fazenda</h3>
-          <Botao
-            onClick={() =>
-              setRig({ id: `rig_${Date.now().toString(36)}`, nome: "", emoji: "⚙️", preco: 1000, taxa: 0.1, energia: 1, desc: "", ativo: true })
-            }
-          >
-            + Nova rig
-          </Botao>
-        </div>
-        <div className="mt-3 space-y-2">
-          {cfg.rigs.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <span className="text-2xl">{r.emoji}</span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-bold text-white">{r.nome}</p>
-                <p className="text-[11px] text-slate-400">
-                  {fmtMAS(r.preco)} · {fmtHS(r.taxa)} · {r.energia} kW
-                </p>
-              </div>
-              <Switch ligado={r.ativo !== false} onChange={(v) => salvarRig({ ...r, ativo: v })} />
-              <Botao variante="ghost" className="px-3 py-1.5 text-xs" onClick={() => setRig({ ...r })}>
-                ✏️
-              </Botao>
-              <Botao variante="perigo" className="px-3 py-1.5 text-xs" onClick={() => setExcluir(r)}>
-                🗑️
-              </Botao>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {rig && (
-        <Modal aberto onFechar={() => setRig(null)} titulo="Rig de mineração">
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Campo label="Nome">
-                <Input value={rig.nome} onChange={(e) => setRig({ ...rig, nome: e.target.value })} />
-              </Campo>
-              <Campo label="Emoji">
-                <Input value={rig.emoji} onChange={(e) => setRig({ ...rig, emoji: e.target.value })} />
-              </Campo>
-              <Campo label="Preço base (MAS)">
-                <Input type="number" value={rig.preco} onChange={(e) => setRig({ ...rig, preco: Number(e.target.value) })} />
-              </Campo>
-              <Campo label="Potência (H/s)">
-                <Input type="number" step="0.01" value={rig.taxa} onChange={(e) => setRig({ ...rig, taxa: Number(e.target.value) })} />
-              </Campo>
-              <Campo label="Energia (kW)">
-                <Input type="number" value={rig.energia} onChange={(e) => setRig({ ...rig, energia: Number(e.target.value) })} />
-              </Campo>
-            </div>
-            <Campo label="Descrição">
-              <Input value={rig.desc} onChange={(e) => setRig({ ...rig, desc: e.target.value })} />
-            </Campo>
-            <div className="flex gap-2">
-              <Botao variante="ghost" className="flex-1" onClick={() => setRig(null)}>
-                Cancelar
-              </Botao>
-              <Botao
-                variante="sucesso"
-                className="flex-1"
-                onClick={() => {
-                  if (!rig.nome.trim()) return toast("Informe o nome", "erro");
-                  salvarRig(rig);
-                  toast("Rig salva", "ok");
-                  setRig(null);
-                }}
-              >
-                Salvar
-              </Botao>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      <Confirmar
-        aberto={!!excluir}
-        perigo
-        titulo="Excluir rig"
-        mensagem={`Remover "${excluir?.nome}" da fazenda de mineração?`}
-        onCancelar={() => setExcluir(null)}
-        onConfirmar={() => {
-          if (excluir) excluirRig(excluir.id);
-          setExcluir(null);
-          toast("Rig removida", "ok");
-        }}
-      />
     </div>
   );
 }
@@ -1630,7 +1710,7 @@ function ConfigAdmin() {
             />
           </Campo>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">
-            Aplicado no <code className="text-fuchsia-300">createUserDocument</code> do Firestore — nunca sobrescrito em relogins ou ao limpar cache.
+            Aplicado apenas no primeiro cadastro — nunca sobrescrito ao relogar ou limpar o cache.
           </div>
         </div>
       </Card>
@@ -1673,7 +1753,7 @@ function ConfigAdmin() {
           <Switch
             ligado={cfg.overrides.usuariosReal}
             onChange={(v) => salvarConfig({ overrides: { ...cfg.overrides, usuariosReal: v } })}
-            rotulo={cfg.overrides.usuariosReal ? "Exibindo dados reais do Firestore" : "Exibindo valores customizados/fictícios"}
+            rotulo={cfg.overrides.usuariosReal ? "Exibindo dados reais da rede" : "Exibindo valores customizados"}
           />
         </div>
         {!cfg.overrides.usuariosReal && (
@@ -1792,6 +1872,39 @@ function ConfigAdmin() {
             </Campo>
           </div>
         </div>
+        <div className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4">
+          <h4 className="mb-3 font-black text-white">🔐 Requisitos Globais de Nível</h4>
+          <p className="mb-3 text-[11px] text-slate-400">
+            Estes requisitos são usados na interface e nas mutações transacionais do sistema (ex.: compra de item),
+            reduzindo a chance de burlar regras pelo cliente.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {([
+              ["comprarLoja", "Compras na Loja"],
+              ["acessarMundo", "Abrir Mundo"],
+              ["visitarQuartos", "Visitar quartos"],
+              ["chatQuarto", "Chat do quarto"],
+              ["comprarSlotHardware", "Comprar slots"],
+            ] as const).map(([key, label]) => (
+              <Campo key={key} label={label}>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={cfg.requisitosNivel?.[key] || 1}
+                  onChange={(e) =>
+                    salvarConfig({
+                      requisitosNivel: {
+                        ...cfg.requisitosNivel,
+                        [key]: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                      },
+                    })
+                  }
+                />
+              </Campo>
+            ))}
+          </div>
+        </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="space-y-3">
             <Campo label="Depósito mínimo (R$)">
@@ -1815,7 +1928,7 @@ function ConfigAdmin() {
       <Card className="border-rose-500/20">
         <h3 className="font-black text-rose-300">⚠️ Zona de risco</h3>
         <p className="mt-1 text-sm text-slate-400">
-          Restaura o catálogo de itens, rigs, jogos, banners e parâmetros para os valores de fábrica. Não afeta as contas dos usuários.
+          Restaura o catálogo de itens, jogos, banners e parâmetros para os valores de fábrica. Não afeta as contas dos usuários.
         </p>
         <Botao variante="perigo" className="mt-3" onClick={() => setConf(true)}>
           Restaurar configuração padrão
@@ -1862,7 +1975,7 @@ function GraficoAdmin() {
           <h3 className="font-black text-white">📈 Gráfico dinâmico do MAS</h3>
           <p className="text-sm text-slate-400">
             Controle a amplitude, os picos, o modo de mercado e o intervalo de atualização exibidos na Home e na
-            Carteira. Salvo em <code className="text-fuchsia-300">config/global.grafico</code> e propagado em tempo real.
+            Carteira. Aplicado em tempo real para todos os usuários.
           </p>
         </div>
         <Switch ligado={g.ativo} onChange={(v) => set({ ativo: v })} rotulo={g.ativo ? "Rodando" : "Pausado"} />
@@ -2015,11 +2128,150 @@ function GraficoAdmin() {
             key={p.id}
             onClick={() => set(p.patch)}
             className="rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] font-bold text-slate-300 transition hover:border-fuchsia-400/40 hover:text-white"
-          >
+           >
             {p.label}
           </button>
         ))}
       </div>
     </Card>
+  );
+}
+
+/* ======================= INDEX / LOGIN (LANDING) ======================= */
+function LandingAdmin() {
+  const { cfg, salvarConfig } = useConfig();
+  const { toast } = useApp();
+  const L = cfg.landing;
+  const set = (patch: Partial<typeof L>) => salvarConfig({ landing: { ...L, ...patch } });
+
+  const setFeature = (i: number, patch: Partial<(typeof L.features)[number]>) => {
+    const features = L.features.map((f, idx) => (idx === i ? { ...f, ...patch } : f));
+    set({ features });
+  };
+  const addFeature = () => set({ features: [...L.features, { icone: "✨", titulo: "Novo", desc: "Descrição" }] });
+  const delFeature = (i: number) => set({ features: L.features.filter((_, idx) => idx !== i) });
+
+  return (
+    <div className="space-y-4">
+      <Card glow className="overflow-hidden bg-[radial-gradient(120%_150%_at_0%_0%,rgba(217,70,239,0.18),transparent_55%)]">
+        <h3 className="text-lg font-black text-white">🖼️ Index, Login e Cadastro</h3>
+        <p className="text-sm text-slate-400">
+          Tudo que aparece na tela inicial é configurável aqui e atualiza em tempo real para todos.
+        </p>
+      </Card>
+
+      {/* Textos */}
+      <Card>
+        <h4 className="mb-3 font-black text-white">📝 Textos</h4>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo label="Nome da marca"><Input value={L.marca} onChange={(e) => set({ marca: e.target.value })} /></Campo>
+          <Campo label="Emoji/ícone do logo"><Input value={L.logoEmoji} onChange={(e) => set({ logoEmoji: e.target.value })} /></Campo>
+          <Campo label="URL do logo (opcional)" dica="Substitui o emoji"><Input value={L.logoUrl} onChange={(e) => set({ logoUrl: e.target.value })} /></Campo>
+          <Campo label="Slogan (efeito de digitação)"><Input value={L.slogan} onChange={(e) => set({ slogan: e.target.value })} /></Campo>
+          <Campo label="Título principal"><Input value={L.titulo} onChange={(e) => set({ titulo: e.target.value })} /></Campo>
+          <Campo label="Subtítulo"><Input value={L.subtitulo} onChange={(e) => set({ subtitulo: e.target.value })} /></Campo>
+          <Campo label="Botão Entrar"><Input value={L.btnEntrar} onChange={(e) => set({ btnEntrar: e.target.value })} /></Campo>
+          <Campo label="Botão Criar conta"><Input value={L.btnCriar} onChange={(e) => set({ btnCriar: e.target.value })} /></Campo>
+        </div>
+        <div className="mt-3">
+          <Campo label="Rodapé"><Textarea rows={2} value={L.rodape} onChange={(e) => set({ rodape: e.target.value })} /></Campo>
+        </div>
+      </Card>
+
+      {/* Cores e efeitos */}
+      <Card>
+        <h4 className="mb-3 font-black text-white">🎨 Cores e efeitos (tempo real)</h4>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {([
+            ["corPrimaria", "Cor primária"],
+            ["corSecundaria", "Cor secundária"],
+            ["corFundo", "Cor de fundo"],
+          ] as const).map(([key, label]) => (
+            <Campo key={key} label={label}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={L[key]}
+                  onChange={(e) => set({ [key]: e.target.value } as Partial<typeof L>)}
+                  className="h-10 w-14 cursor-pointer rounded-lg border border-white/10 bg-transparent"
+                />
+                <Input value={L[key]} onChange={(e) => set({ [key]: e.target.value } as Partial<typeof L>)} />
+              </div>
+            </Campo>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {([
+            ["pixelArt", "Pixel-art neon"],
+            ["particulas", "Partículas"],
+            ["scanlines", "Scanlines CRT"],
+            ["brilhoNeon", "Brilho neon"],
+          ] as const).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+              <span className="text-[11px] font-bold text-slate-300">{label}</span>
+              <Switch ligado={!!L[key]} onChange={(v) => set({ [key]: v } as Partial<typeof L>)} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Features */}
+      <Card>
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="font-black text-white">✨ Destaques (features)</h4>
+          <Botao variante="ghost" className="px-3 py-1.5 text-xs" onClick={addFeature}>+ Adicionar</Botao>
+        </div>
+        <div className="space-y-2">
+          {L.features.map((f, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+              <Input value={f.icone} onChange={(e) => setFeature(i, { icone: e.target.value })} className="w-16 text-center" />
+              <Input value={f.titulo} onChange={(e) => setFeature(i, { titulo: e.target.value })} className="w-32" />
+              <Input value={f.desc} onChange={(e) => setFeature(i, { desc: e.target.value })} className="min-w-[160px] flex-1" />
+              <button onClick={() => delFeature(i)} className="rounded-lg bg-rose-500/15 px-2 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/25">🗑️</button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Preview */}
+      <Card>
+        <h4 className="mb-3 font-black text-white">👁️ Pré-visualização</h4>
+        <div
+          className="relative overflow-hidden rounded-2xl border border-white/10 p-6"
+          style={{ background: L.corFundo }}
+        >
+          {L.pixelArt && (
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.14]"
+              style={{
+                backgroundImage: `linear-gradient(${L.corPrimaria}55 1px,transparent 1px),linear-gradient(90deg,${L.corSecundaria}55 1px,transparent 1px)`,
+                backgroundSize: "22px 22px",
+              }}
+            />
+          )}
+          <div className="relative flex items-center gap-3">
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-xl text-2xl font-black text-white"
+              style={{ background: `linear-gradient(135deg,${L.corPrimaria},${L.corSecundaria})`, boxShadow: L.brilhoNeon ? `0 0 30px -6px ${L.corPrimaria}` : "none" }}
+            >
+              {L.logoUrl ? <img src={L.logoUrl} alt="" className="h-full w-full rounded-xl object-cover" /> : L.logoEmoji}
+            </div>
+            <div>
+              <p className="text-lg font-black text-white">{L.marca}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: L.corSecundaria }}>{L.slogan}</p>
+            </div>
+          </div>
+          <p className="relative mt-3 text-xl font-black text-white">{L.titulo}</p>
+          <p className="relative text-xs text-slate-300">{L.subtitulo}</p>
+          <button
+            className="relative mt-3 rounded-lg px-4 py-2 text-xs font-black text-white"
+            style={{ background: `linear-gradient(110deg,${L.corPrimaria},${L.corSecundaria})` }}
+            onClick={() => toast("É só uma prévia 😉", "info")}
+          >
+            {L.btnEntrar}
+          </button>
+        </div>
+      </Card>
+    </div>
   );
 }

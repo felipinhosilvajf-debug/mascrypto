@@ -14,7 +14,7 @@ import AdminView from "./components/AdminView";
 import SuporteView from "./components/SuporteView";
 import MundoView from "./components/MundoView";
 import TermosModal, { TERMOS_VERSAO } from "./components/TermosModal";
-import { Botao, Card, Input, PillSaldo } from "./components/UI";
+import { AvatarVisual, Botao, Card, Input, PillSaldo } from "./components/UI";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, progressoNivel } from "./lib/economia";
 import { cn } from "./utils/cn";
 
@@ -215,7 +215,11 @@ function Shell() {
   const prog = progressoNivel(data.xp);
   const { cfg } = useConfig();
   const modulos = cfg.modulos || {};
-  const NAV = NAV_BASE.filter((n) => n.mod === null || modulos[n.mod as keyof typeof modulos] !== false);
+  const NAV = NAV_BASE.filter((n) => {
+    if (n.mod !== null && modulos[n.mod as keyof typeof modulos] === false) return false;
+    if (n.id === "mundo" && nivelPorXp(data.xp) < (cfg.requisitosNivel?.acessarMundo || 1)) return false;
+    return true;
+  });
   const navCompleta = ehAdmin ? [...NAV, { id: "admin", nome: "Admin", emoji: "🛡️" }] : NAV;
 
   /* Estilos por tema */
@@ -313,7 +317,7 @@ function Shell() {
               onClick={() => setMenu(!menu)}
               className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-xl transition hover:bg-white/10"
             >
-              {data.avatar}
+              <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-8 w-8" emojiClassName="text-xl" />
               <span className="absolute -bottom-1 -right-1 rounded-md bg-slate-950 px-1 text-[9px] font-black text-fuchsia-300 ring-1 ring-fuchsia-500/40">
                 {nivel}
               </span>
@@ -343,7 +347,7 @@ function Shell() {
             <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
             <div className="absolute right-2 top-[60px] z-40 w-72 rounded-3xl border border-white/10 bg-slate-950/97 p-4 shadow-2xl backdrop-blur-2xl sm:right-4">
               <div className="flex items-center gap-3">
-                <span className="text-3xl">{data.avatar}</span>
+                <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-10 w-10" emojiClassName="text-3xl" />
                 <div className="min-w-0">
                   <p className="truncate font-black text-white">{data.nome}</p>
                   <p className="truncate text-[11px] text-slate-400">{data.email}</p>

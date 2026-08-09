@@ -20,10 +20,18 @@ export function useRtp(id: string): number {
   return cfg.jogos[id]?.rtp ?? 0.97;
 }
 
-/** Estado de aposta compartilhado por todos os jogos (saldo vem do contexto central). */
-export function useAposta(inicial = 50) {
+/**
+ * Estado de aposta compartilhado por todos os jogos.
+ * Se `jogoId` for passado, lê o valor padrão configurado pelo Admin
+ * (config/global.jogos[id].apostaPadrao). Caso contrário usa `inicial`.
+ */
+export function useAposta(inicialOuId: number | string = 50) {
   const { data } = useApp();
-  const [aposta, setAposta] = useState(inicial);
+  const { cfg } = useConfig();
+  const jogoId = typeof inicialOuId === "string" ? inicialOuId : "";
+  const cfgJogo = jogoId ? cfg.jogos[jogoId] : undefined;
+  const padrao = typeof inicialOuId === "number" ? inicialOuId : Math.max(1, cfgJogo?.apostaPadrao || 50);
+  const [aposta, setAposta] = useState<number>(padrao);
   const saldo = data?.saldo ?? 0;
   return { aposta, setAposta, saldo, valida: aposta > 0 && aposta <= saldo };
 }
@@ -33,12 +41,32 @@ export function ControleAposta({
   setAposta,
   saldo,
   travado,
+  jogoId,
 }: {
   aposta: number;
   setAposta: (n: number) => void;
   saldo: number;
   travado?: boolean;
+  /** ID do jogo — carrega atalhos configurados pelo Admin. */
+  jogoId?: string;
 }) {
+  const { cfg } = useConfig();
+  const cfgJogo = jogoId ? cfg.jogos[jogoId] : undefined;
+  const atalhos = cfgJogo?.atalhos && cfgJogo.atalhos.length
+    ? cfgJogo.atalhos
+    : [
+        { label: "½", op: "half" as const },
+        { label: "2×", op: "double" as const },
+        { label: "100", valor: 100 },
+        { label: "1k", valor: 1000 },
+        { label: "MAX", op: "max" as const },
+      ];
+  const aplicarAtalho = (a: { op?: string; valor?: number }) => {
+    if (a.op === "half") setAposta(Math.max(1, Math.floor(aposta / 2)));
+    else if (a.op === "double") setAposta(Math.max(1, aposta * 2));
+    else if (a.op === "max") setAposta(Math.max(1, Math.floor(saldo)));
+    else if (typeof a.valor === "number") setAposta(Math.max(1, Math.floor(a.valor)));
+  };
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-3">
       <div className="flex items-center justify-between text-[11px]">
@@ -56,23 +84,18 @@ export function ControleAposta({
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-fuchsia-400">MAS</span>
       </div>
-      <div className="mt-2 grid grid-cols-5 gap-1">
-        {(
-          [
-            ["½", () => setAposta(Math.max(1, Math.floor(aposta / 2)))],
-            ["2×", () => setAposta(Math.max(1, aposta * 2))],
-            ["100", () => setAposta(100)],
-            ["1k", () => setAposta(1000)],
-            ["MAX", () => setAposta(Math.max(1, Math.floor(saldo)))],
-          ] as [string, () => void][]
-        ).map(([l, f]) => (
+      <div
+        className="mt-2 grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${Math.max(2, atalhos.length)}, minmax(0, 1fr))` }}
+      >
+        {atalhos.map((a, i) => (
           <button
-            key={l}
+            key={i}
             disabled={travado}
-            onClick={f}
+            onClick={() => aplicarAtalho(a)}
             className="rounded-lg border border-white/10 bg-white/[0.04] py-1.5 text-[11px] font-bold text-slate-300 transition hover:border-fuchsia-400/40 hover:bg-fuchsia-500/15 hover:text-white disabled:opacity-40"
           >
-            {l}
+            {a.label}
           </button>
         ))}
       </div>

@@ -16,7 +16,7 @@ import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { AVATARES, SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
-import { ArteItem, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
+import { ArteItem, AvatarVisual, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
 import { cn } from "../utils/cn";
 
 /* ─── Constantes do grid isométrico ─── */
@@ -39,6 +39,7 @@ interface JogadorOnline {
   uid: string;
   nome: string;
   avatar: string;
+  avatarImg?: string;
   avatarPos: { x: number; y: number };
   equipados: Record<string, string>;
   lastMsg: string;
@@ -117,7 +118,7 @@ export default function VirtualRoomView({
     const registrar = async () => {
       try {
         await setDoc(pRef, {
-          uid: user.uid, nome: data.nome, avatar: data.avatar,
+          uid: user.uid, nome: data.nome, avatar: data.avatar, avatarImg: data.avatarImg,
           avatarPos: minhaPos, equipados: data.equipados || {},
           lastMsg: "", lastMsgTs: 0, status: data.status,
           nivel: nivelPorXp(data.xp),
@@ -244,12 +245,29 @@ export default function VirtualRoomView({
   const enviarChat = async () => {
     const t = textoChat.trim();
     if (!t || enviando) return;
+    const reqChat = cfg.requisitosNivel?.chatQuarto || 1;
+    if (nivelPorXp(data.xp) < reqChat) return toast(`Chat do quarto exige nível ${reqChat}`, "erro");
     setEnviando(true);
     try {
       await addDoc(collection(db, "chat_quarto"), {
         uid: user.uid, nome: data.nome, avatar: data.avatar,
         texto: t.slice(0, 200), sala: salaId, ts: Date.now(),
       });
+      // Atualiza o balão sobre a cabeça do avatar por 5 segundos
+      await setDoc(doc(db, "online_room", user.uid), {
+        uid: user.uid,
+        nome: data.nome,
+        avatar: data.avatar,
+        avatarImg: data.avatarImg,
+        avatarPos: minhaPos,
+        equipados: data.equipados || {},
+        lastMsg: t.slice(0, 120),
+        lastMsgTs: Date.now(),
+        status: data.status,
+        nivel: nivelPorXp(data.xp),
+        sala: donoId,
+      } as JogadorOnline);
+      atualizar((d) => ({ ...d, lastMsg: t.slice(0, 120), lastMsgTs: Date.now() }));
       setTextoChat("");
     } catch { toast("Falha ao enviar mensagem", "erro"); }
     finally { setEnviando(false); }
@@ -264,6 +282,8 @@ export default function VirtualRoomView({
   };
 
   const adicionarSlotHardware = () => {
+    const reqSlot = cfg.requisitosNivel?.comprarSlotHardware || 1;
+    if (nivelPorXp(data.xp) < reqSlot) return toast(`Comprar slots exige nível ${reqSlot}`, "erro");
     if (slotsOcupados >= limiteSlots && limiteSlots > 0) {
       if (limiteSlots >= (cfg.limiteSlotHardwareGlobal || 16))
         return toast(`Limite global de ${cfg.limiteSlotHardwareGlobal} slots atingido`, "erro");
@@ -300,7 +320,7 @@ export default function VirtualRoomView({
       <Card glow className="flex flex-wrap items-center justify-between gap-4 py-4">
         <div className="flex min-w-0 items-center gap-4">
           <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-[conic-gradient(from_180deg,rgba(217,70,239,.5),rgba(56,189,248,.4),rgba(217,70,239,.5))] text-4xl shadow-[0_0_25px_-8px_rgba(217,70,239,.9)]">
-            {sala.avatar}
+            <AvatarVisual avatar={sala.avatar} imagem={sala.avatarImg} className="h-12 w-12" emojiClassName="text-4xl" />
             <span className="absolute -bottom-1.5 -right-1.5 rounded-lg bg-slate-950 px-1.5 py-0.5 text-[10px] font-black text-fuchsia-300 ring-1 ring-fuchsia-500/40">
               Nv {nivelPorXp(sala.xp)}
             </span>
@@ -420,7 +440,7 @@ export default function VirtualRoomView({
                       </div>
                     )}
                     <div className="relative text-4xl drop-shadow-[0_10px_6px_rgba(0,0,0,.8)]">
-                      {j.avatar}
+                      <AvatarVisual avatar={j.avatar} imagem={j.avatarImg} className="h-10 w-10" emojiClassName="text-4xl" />
                       {chapItem && <span className="absolute -right-2 -top-2 text-base">{chapItem.emoji}</span>}
                     </div>
                     <p className="rounded-full bg-black/65 px-2 py-0.5 text-[8px] font-black text-white">{j.nome}</p>
@@ -439,7 +459,7 @@ export default function VirtualRoomView({
                   </div>
                 )}
                 <div className="relative text-4xl drop-shadow-[0_10px_8px_rgba(0,0,0,.9)]">
-                  {data.avatar}
+                  <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-10 w-10" emojiClassName="text-4xl" />
                   {data.equipados.chapeu && <span className="absolute -right-2 -top-2 text-base">{cfg.itens.find((i) => i.id === data.equipados.chapeu)?.emoji}</span>}
                   {data.equipados.pet && <span className="absolute -right-6 bottom-0 text-xl">{cfg.itens.find((i) => i.id === data.equipados.pet)?.emoji}</span>}
                 </div>
@@ -491,7 +511,7 @@ export default function VirtualRoomView({
                   <div className={cn("max-w-[75%] rounded-xl px-2.5 py-1 text-[11px]",
                     m.uid === user.uid ? "bg-fuchsia-600/30 text-fuchsia-50" : "bg-white/[0.07] text-slate-200")}>
                     <b className="block text-[9px] font-black uppercase text-slate-400">{m.uid === user.uid ? "Você" : m.nome}</b>
-                    {m.texto}
+                    <span className="line-clamp-3 break-words">{m.texto}</span>
                   </div>
                 </div>
               ))}
@@ -547,7 +567,9 @@ export default function VirtualRoomView({
           {!ehVisitante && abaLateral === "rpg" && (
             <Card className="p-4">
               <div className="mb-4 text-center">
-                <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-fuchsia-400/40 bg-[radial-gradient(circle,rgba(217,70,239,.2),transparent_70%)] text-5xl shadow-[0_0_30px_-10px_rgba(217,70,239,.8)]">{data.avatar}</div>
+                <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-fuchsia-400/40 bg-[radial-gradient(circle,rgba(217,70,239,.2),transparent_70%)] text-5xl shadow-[0_0_30px_-10px_rgba(217,70,239,.8)]">
+                  <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-16 w-16" emojiClassName="text-5xl" />
+                </div>
                 <p className="mt-1 font-black text-white">{data.nome}</p>
                 <p className={cn("text-[11px] font-bold", pat.cor)}>{pat.emoji} {pat.nome} · Nv {nivel}</p>
               </div>
@@ -714,6 +736,41 @@ export default function VirtualRoomView({
                   {a}
                 </button>
               ))}
+            </div>
+            <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Imagem customizada</p>
+              <Input
+                placeholder="Cole uma URL de imagem/ícone (PNG, JPG, GIF, WebP)"
+                value={data.avatarImg || ""}
+                onChange={(e) => atualizar((d) => ({ ...d, avatarImg: e.target.value }))}
+              />
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/10">
+                  Upload local
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 1024 * 1024) return toast("Use uma imagem de até 1MB", "erro");
+                      const reader = new FileReader();
+                      reader.onload = () => atualizar((d) => ({ ...d, avatarImg: String(reader.result || "") }));
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+                {data.avatarImg && (
+                  <button
+                    onClick={() => atualizar((d) => ({ ...d, avatarImg: "" }))}
+                    className="rounded-xl bg-rose-500/15 px-3 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/25"
+                  >
+                    Remover imagem
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500">Reflete no sprite isométrico, no perfil e no modo visitante.</p>
             </div>
           </div>
           <div>

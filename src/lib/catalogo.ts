@@ -1,5 +1,5 @@
 /* ============================================================
-   CATÁLOGO GLOBAL — itens da loja, rigs, jogos, banners e config.
+   CATÁLOGO GLOBAL — itens da loja, jogos, banners e config.
    PADRÕES iniciais: o Admin pode criar, editar e excluir tudo em
    tempo real (ver src/store/ConfigContext.tsx) com persistência
    no Firestore (config/global) e sincronização via onSnapshot.
@@ -59,6 +59,15 @@ export interface ItemLoja {
   nivelMin: number;
   /** Hashrate gerado quando equipado (0 para roupas). */
   hs: number;
+  /**
+   * Oscilação (0-1) do H/s do item.
+   * Quando > 0, o valor efetivo varia entre `hs*(1-osc)` e `hs*(1+osc)`
+   * a cada intervalo, dando "vida" à mineração dos hardware equipados.
+   * `0` mantém o valor fixo (comportamento padrão).
+   */
+  hsOscilacao?: number;
+  /** Intervalo em segundos entre trocas de valor oscilante. Padrão 4s. */
+  hsIntervaloS?: number;
   /** Bônus percentual de mineração (ex.: 0.05 = +5%). */
   bonusPct: number;
   ativo: boolean;
@@ -79,6 +88,8 @@ const mk = (p: Partial<ItemLoja> & { id: string; nome: string; categoria: Catego
     imagem: "",
     nivelMin: 1,
     hs: 0,
+    hsOscilacao: 0,
+    hsIntervaloS: 4,
     bonusPct: 0,
     ativo: true,
     estoque: -1,
@@ -95,7 +106,7 @@ export const ITENS_PADRAO: ItemLoja[] = [
   mk({ id: "camisa_neon", nome: "Jaqueta Neon", categoria: "camisa", emoji: "🧥", preco: 2400, nivelMin: 6, desc: "Jaqueta cyberpunk com fios de LED." }),
   mk({ id: "camisa_terno", nome: "Terno do Magnata", categoria: "camisa", emoji: "🤵", preco: 18000, nivelMin: 20, desc: "Alfaiataria para grandes investidores." }),
   // ---------- CALÇAS ----------
-  mk({ id: "calca_jeans", nome: "Jeans do Minerador", categoria: "calca", emoji: "👖", preco: 420, nivelMin: 1, desc: "Resistente à poeira das rigs." }),
+  mk({ id: "calca_jeans", nome: "Jeans do Minerador", categoria: "calca", emoji: "👖", preco: 420, nivelMin: 1, desc: "Resistente à rotina de mineração." }),
   mk({ id: "calca_tatica", nome: "Calça Tática Cyber", categoria: "calca", emoji: "🥾", preco: 3100, nivelMin: 9, desc: "Bolsos para cold wallets." }),
   // ---------- SAPATOS ----------
   mk({ id: "tenis_hash", nome: "Tênis HashRunner", categoria: "sapato", emoji: "👟", preco: 900, nivelMin: 3, desc: "Corre mais rápido que o mercado." }),
@@ -124,31 +135,11 @@ export const ITENS_PADRAO: ItemLoja[] = [
   // ---------- PERIFÉRICOS (H/S) ----------
   mk({ id: "mouse_hash", nome: "Mouse HashClick", categoria: "periferico", emoji: "🖱️", preco: 1100, nivelMin: 3, hs: 0.2, desc: "Cliques mais lucrativos." }),
   mk({ id: "teclado_rgb", nome: "Teclado RGB MAS", categoria: "periferico", emoji: "⌨️", preco: 2600, nivelMin: 6, hs: 0.6, desc: "RGB é hashrate visual." }),
-  mk({ id: "cooler_pro", nome: "Cooler Ártico Pro", categoria: "periferico", emoji: "❄️", preco: 8400, nivelMin: 11, hs: 2.4, desc: "Mantém as rigs geladas." }),
+  mk({ id: "cooler_pro", nome: "Cooler Ártico Pro", categoria: "periferico", emoji: "❄️", preco: 8400, nivelMin: 11, hs: 2.4, desc: "Mantém seu hardware gelado." }),
   // ---------- OUTROS (pets / bônus %) ----------
   mk({ id: "gato", nome: "Gato Minerador", categoria: "outro", emoji: "🐱", preco: 3000, nivelMin: 5, bonusPct: 0.02, desc: "+2% de mineração passiva." }),
   mk({ id: "robo", nome: "Robô Assistente", categoria: "outro", emoji: "🤖", preco: 9000, nivelMin: 10, bonusPct: 0.05, desc: "+5% de mineração passiva." }),
   mk({ id: "dragao", nome: "Dragão do Hash", categoria: "outro", emoji: "🐉", preco: 25000, nivelMin: 22, bonusPct: 0.08, desc: "+8% de mineração passiva." }),
-];
-
-/* ------------------- RIGS (fazenda de mineração) ------------------- */
-export interface Rig {
-  id: string;
-  nome: string;
-  emoji: string;
-  preco: number;
-  taxa: number; // H/s por unidade
-  energia: number;
-  desc: string;
-  ativo: boolean;
-}
-
-export const RIGS_PADRAO: Rig[] = [
-  { id: "cpu", nome: "CPU Doméstica", emoji: "🖥️", preco: 250, taxa: 0.02, energia: 1, desc: "O começo de todo minerador.", ativo: true },
-  { id: "gpu", nome: "Rack de GPUs", emoji: "🎮", preco: 1800, taxa: 0.18, energia: 4, desc: "Hashrate sólido para iniciantes.", ativo: true },
-  { id: "asic", nome: "ASIC Titan", emoji: "⚙️", preco: 12000, taxa: 1.4, energia: 12, desc: "Máquina dedicada e lucrativa.", ativo: true },
-  { id: "quantum", nome: "Núcleo Quântico", emoji: "🧊", preco: 85000, taxa: 11, energia: 30, desc: "Qubits trabalhando por você.", ativo: true },
-  { id: "fusion", nome: "Reator de Fusão", emoji: "☀️", preco: 600000, taxa: 90, energia: 80, desc: "Energia estelar minerando MAS.", ativo: true },
 ];
 
 /* ------------------- JOGOS DO CASSINO ------------------- */
@@ -165,6 +156,14 @@ export interface JogoConfig {
   /** Limites individuais de aposta em MAS. */
   apostaMin: number;
   apostaMax: number;
+  /** Valor pré-digitado no campo de aposta ao entrar no jogo. */
+  apostaPadrao: number;
+  /**
+   * Atalhos do painel de aposta. Cada atalho pode ser:
+   *  - operação: `op: "half" | "double" | "max"`
+   *  - valor fixo: `valor: número em MAS`
+   */
+  atalhos: { label: string; op?: "half" | "double" | "max"; valor?: number }[];
   /** URL de imagem de capa exibida no lobby. */
   capa: string;
   /** URL de GIF/animacao de destaque. */
@@ -172,7 +171,16 @@ export interface JogoConfig {
   ativo: boolean;
 }
 
-export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo">[] = [
+/** Atalhos padrão usados quando o jogo não define os seus. */
+export const ATALHOS_APOSTA_PADRAO: JogoConfig["atalhos"] = [
+  { label: "½",   op: "half"   },
+  { label: "2×",  op: "double" },
+  { label: "100", valor: 100    },
+  { label: "1k",  valor: 1000   },
+  { label: "MAX", op: "max"    },
+];
+
+export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo" | "apostaPadrao" | "atalhos">[] = [
   { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular", rtp: 0.99, houseEdge: 0.01, apostaMin: 1, apostaMax: 100000 },
   { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia", rtp: 0.97, houseEdge: 0.03, apostaMin: 1, apostaMax: 100000 },
   { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no sete", tag: "Jackpot", rtp: 0.885, houseEdge: 0.115, apostaMin: 1, apostaMax: 50000 },
@@ -201,6 +209,8 @@ export function jogoPadrao(id: string): JogoConfig {
     houseEdge: meta?.houseEdge ?? 0.03,
     apostaMin: meta?.apostaMin ?? 1,
     apostaMax: meta?.apostaMax ?? 100000,
+    apostaPadrao: 50,
+    atalhos: ATALHOS_APOSTA_PADRAO,
     capa: "",
     gif: "",
     ativo: true,
@@ -255,6 +265,11 @@ export const BANNERS_PADRAO: Banner[] = [
 
 /* ------------------- CONFIG MINERAÇÃO ------------------- */
 export interface ConfigMineracao {
+  /** Ring automática global — unidade base invisível da rede MAScrypto. */
+  ringAtiva: boolean;
+  ringNome: string;
+  ringDesc: string;
+  ringHashrate: number;
   cliqueAtivo: boolean;
   valorClique: number;
   cooldownMs: number;
@@ -265,6 +280,10 @@ export interface ConfigMineracao {
   boostPreco: number;
   boostMult: number;
   boostSegundos: number;
+  /** Liga/desliga a compra do Boost na Central de Mineração. */
+  boostAtivo: boolean;
+  /** Cor (hex) do botão de Boost. */
+  boostCor: string;
 }
 
 /* ------------------- CONFIG DO GRÁFICO ------------------- */
@@ -326,6 +345,47 @@ export interface ConfigVisual {
   neonGlowAtivo: boolean;
 }
 
+/** Feature exibida na landing (ícone + título + descrição). */
+export interface LandingFeature {
+  icone: string;
+  titulo: string;
+  desc: string;
+}
+
+/** Configuração completa da Index / Login / Cadastro — editável no Admin. */
+export interface ConfigLanding {
+  marca: string;               // nome da marca (ex.: MAScrypto)
+  logoUrl: string;             // URL opcional de logo (substitui o emoji)
+  logoEmoji: string;           // emoji/ícone do logo se não houver URL
+  titulo: string;              // headline principal
+  subtitulo: string;           // frase de apoio
+  slogan: string;              // texto com efeito de digitação
+  btnEntrar: string;           // rótulo do botão de login
+  btnCriar: string;            // rótulo do botão de cadastro
+  rodape: string;              // texto do rodapé
+  corPrimaria: string;         // hex — cor de destaque/botões
+  corSecundaria: string;       // hex — segunda cor do gradiente/neon
+  corFundo: string;            // hex — cor de fundo da tela
+  pixelArt: boolean;           // liga a grade de pixel-art neon animada
+  particulas: boolean;         // liga partículas flutuantes
+  scanlines: boolean;          // liga efeito de scanlines CRT
+  brilhoNeon: boolean;         // liga o glow neon dos cards/textos
+  features: LandingFeature[];  // grade de destaques
+}
+
+export interface ConfigRequisitosNivel {
+  /** Nível mínimo para comprar qualquer item na Loja (além do nível individual do item). */
+  comprarLoja: number;
+  /** Nível mínimo para abrir a aba Mundo. */
+  acessarMundo: number;
+  /** Nível mínimo para visitar quartos de outros membros. */
+  visitarQuartos: number;
+  /** Nível mínimo para enviar mensagem no chat local do quarto. */
+  chatQuarto: number;
+  /** Nível mínimo para comprar slots extras de hardware no quarto. */
+  comprarSlotHardware: number;
+}
+
 /* ------------------- CONFIG GLOBAL ------------------- */
 export interface ConfigModulos {
   /** Aba Mundo (chat de quartos e diretório) */
@@ -349,7 +409,6 @@ export interface ConfigModulos {
 export interface ConfigGlobal {
   versao: number;
   itens: ItemLoja[];
-  rigs: Rig[];
   jogos: Record<string, JogoConfig>;
   banners: Banner[];
   mineracao: ConfigMineracao;
@@ -374,8 +433,12 @@ export interface ConfigGlobal {
   bilheteria: ConfigBilheteria;
   overrides: ConfigOverrides;
   visual: ConfigVisual;
+  /** Configuração completa da Index/Login/Cadastro. */
+  landing: ConfigLanding;
   /** Ativação/desativação individual de abas e módulos do site. */
   modulos: ConfigModulos;
+  /** Requisitos globais de nível configuráveis pelo Admin. */
+  requisitosNivel: ConfigRequisitosNivel;
   /** Custo em MAS para comprar 1 slot extra de hardware no quarto. */
   custoSlotHardware: number;
   /** Capacidade máxima global de slots (pode ser sobrescrita por conta). */
@@ -404,10 +467,13 @@ export interface ConfigBilheteria {
 export const CONFIG_PADRAO: ConfigGlobal = {
   versao: 8,
   itens: ITENS_PADRAO,
-  rigs: RIGS_PADRAO,
   jogos: Object.fromEntries(JOGOS_META.map((j) => [j.id, jogoPadrao(j.id)])),
   banners: BANNERS_PADRAO,
   mineracao: {
+    ringAtiva: true,
+    ringNome: "Ring MAS Padrão",
+    ringDesc: "Unidade de processamento automática da rede MAScrypto.",
+    ringHashrate: 0.005,
     cliqueAtivo: true,
     valorClique: 0.75,
     cooldownMs: 220,
@@ -418,6 +484,8 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     boostPreco: 500,
     boostMult: 3,
     boostSegundos: 60,
+    boostAtivo: true,
+    boostCor: "#f59e0b",
   },
   lojaAtiva: true,
   cassinoAtivo: true,
@@ -459,6 +527,30 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     particulasAtivas: true,
     neonGlowAtivo: true,
   },
+  landing: {
+    marca: "MAScrypto",
+    logoUrl: "",
+    logoEmoji: "◆",
+    titulo: "A economia cripto gamificada.",
+    subtitulo: "Mine, jogue no cassino, decore seu quarto 3D e evolua na rede MAS.",
+    slogan: "MINE. CONVERTA. EVOLUA.",
+    btnEntrar: "Entrar",
+    btnCriar: "Criar conta",
+    rodape: "MAScrypto · rede de entretenimento com créditos virtuais · +18",
+    corPrimaria: "#d946ef",
+    corSecundaria: "#22d3ee",
+    corFundo: "#05040c",
+    pixelArt: true,
+    particulas: true,
+    scanlines: true,
+    brilhoNeon: true,
+    features: [
+      { icone: "⛏️", titulo: "Mineração", desc: "Ganhe MAS 24h por dia" },
+      { icone: "🎰", titulo: "Cassino", desc: "12 jogos + bilheteria" },
+      { icone: "🏠", titulo: "Quarto 3D", desc: "Decore e receba visitas" },
+      { icone: "🌐", titulo: "Mundo", desc: "Explore a comunidade" },
+    ],
+  },
   modulos: {
     mundo: true,
     loja: true,
@@ -468,6 +560,13 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     ranking: true,
     quarto: true,
     mineracao: true,
+  },
+  requisitosNivel: {
+    comprarLoja: 1,
+    acessarMundo: 1,
+    visitarQuartos: 1,
+    chatQuarto: 1,
+    comprarSlotHardware: 1,
   },
   custoSlotHardware: 5000,
   limiteSlotHardwareGlobal: 16,

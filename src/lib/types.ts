@@ -12,7 +12,7 @@ export const TEMAS = [
 export const AVATARES = ["🦊", "🐻", "🐼", "🐸", "🦁", "🐧", "🐳", "🦄", "👽", "🤠", "🧙", "🥷", "🐺", "🦉", "🐲", "🦈"];
 
 export const STATUS_QUARTO = [
-  "Patrulhando as Rigs",
+  "Ativando a Ring",
   "Minerando em silêncio",
   "Analisando gráficos",
   "Contando MAS",
@@ -63,12 +63,13 @@ export interface UserData {
   nome: string;
   email: string;
   avatar: string;
+  /** URL/dataURL opcional para sprite customizado do personagem. */
+  avatarImg?: string;
   status: string;
   saldo: number; // MAS
   brl: number;
   xp: number;
   nivel: number; // sempre derivado de xp via nivelPorXp()
-  rigs: Record<string, number>;
   itens: string[]; // inventário (ids do catálogo)
   equipados: Record<string, string>; // slot -> itemId
   tema: string;
@@ -115,12 +116,12 @@ export function novoUsuario(uid: string, nome: string, email: string, saldoInici
     nome,
     email,
     avatar: "🦊",
-    status: "Patrulhando as Rigs",
+    avatarImg: "",
+    status: "Ativando a Ring",
     saldo: saldoInicial,
     brl: 0,
     xp: 0,
     nivel: 1,
-    rigs: { cpu: 1 },
     itens: [],
     equipados: {},
     tema: "neon",
@@ -167,7 +168,6 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
     ? Array.from(new Set(d.itens.map((i) => MIGRAR_ITENS[i] || i)))
     : [];
   d.equipados = d.equipados && typeof d.equipados === "object" ? d.equipados : {};
-  d.rigs = d.rigs && typeof d.rigs === "object" ? d.rigs : {};
   d.quarto = d.quarto && typeof d.quarto === "object" ? d.quarto : {};
   d.slotsHardware = (d as any).slotsHardware && typeof (d as any).slotsHardware === "object"
     ? (d as any).slotsHardware
@@ -180,6 +180,7 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
   d.conquistas = Array.isArray(d.conquistas) ? d.conquistas : [];
   d.saldo = Number(d.saldo) || 0;
   d.brl = Number(d.brl) || 0;
+  d.avatarImg = typeof d.avatarImg === "string" ? d.avatarImg : "";
   d.xp = Math.max(0, Number(d.xp) || 0);
   d.nivel = nivelPorXp(d.xp); // nível SEMPRE derivado do XP
   return d;

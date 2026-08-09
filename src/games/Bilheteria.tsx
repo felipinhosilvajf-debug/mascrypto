@@ -182,7 +182,6 @@ export default function Bilheteria() {
     <div className="space-y-4">
       {/* Header do jogo */}
       <div className="relative overflow-hidden rounded-3xl border border-amber-400/30 bg-[radial-gradient(120%_140%_at_50%_0%,rgba(251,191,36,0.18),transparent_55%)] p-5">
-        <div className="pointer-events-none absolute inset-0 animate-[neonRing_3s_ease-in-out_infinite] rounded-3xl" />
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-black text-white">

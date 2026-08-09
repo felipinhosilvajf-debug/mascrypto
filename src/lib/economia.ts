@@ -13,9 +13,15 @@ export function fmtNum(v: number, casas = 2): string {
   return nf(casas, casas).format(v);
 }
 
-/** Saldo em MAS → "225,87 MAS" */
-export function fmtMAS(v: number, casas = 2): string {
-  return `${fmtNum(v ?? 0, casas)} MAS`;
+/**
+ * Saldo em MAS com precisão adaptativa:
+ * valores muito pequenos ganham casas extras para não parecerem zero
+ * (ex.: 0,0005 MAS), valores maiores caem no padrão de 2 casas.
+ * Se `casas` for informado explicitamente, força esse número de casas.
+ */
+export function fmtMAS(v: number, casas?: number): string {
+  if (typeof casas === "number") return `${fmtNum(v ?? 0, casas)} MAS`;
+  return `${fmtDinamico(v ?? 0)} MAS`;
 }
 
 /** Saldo em reais → "R$ 80,50" */
@@ -31,9 +37,26 @@ export function fmtCompacto(v: number): string {
   return fmtNum(v, 2);
 }
 
-/** Hashrate → "12,50 H/s" */
+/**
+ * Precisão adaptativa: mostra casas extras em valores muito baixos e
+ * reduz gradualmente conforme o valor cresce — o progresso nunca parece zerado.
+ *  - 0 exato        → "0,00"
+ *  - >0 e <0,01     → renderiza até o 1º dígito significativo (0,0005 · 0,009)
+ *  - >=0,01         → padrão de 2 casas (0,15 · 1,00 · 1.400,00)
+ */
+export function fmtDinamico(v: number): string {
+  const n = Number(v) || 0;
+  if (n === 0) return fmtNum(0, 2);
+  const abs = Math.abs(n);
+  if (abs >= 0.01) return fmtNum(n, 2);
+  // Posição do primeiro dígito significativo (ex.: 0,0005 → 4 casas)
+  const casas = Math.min(10, Math.ceil(-Math.log10(abs)));
+  return nf(casas, casas).format(n);
+}
+
+/** Hashrate com precisão adaptativa → "0,0005 H/s" · "0,15 H/s" · "1.400,00 H/s" */
 export function fmtHS(v: number): string {
-  return `${fmtNum(v ?? 0, 2)} H/s`;
+  return `${fmtDinamico(v ?? 0)} H/s`;
 }
 
 /* ------------------- XP / NÍVEIS ------------------- */

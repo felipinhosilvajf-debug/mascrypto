@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
+import { fmtDinamico, fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
 import { Barra, Botao, Card, Estat, Selo } from "./UI";
 
 export default function MiningView() {
   const {
     data,
-    atualizar,
-    mover,
     minerarClique,
     hashrate,
     detalheHash,
@@ -75,14 +73,6 @@ export default function MiningView() {
     setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 900);
   };
 
-  const comprarRig = (id: string, preco: number, nome: string) => {
-    const qtd = data.rigs[id] || 0;
-    const custo = Math.round(preco * Math.pow(1.15, qtd));
-    if (data.saldo < custo) return toast("Saldo insuficiente", "erro");
-    if (mover({ mas: -custo, titulo: "Mineração · Nova rig", detalhe: nome, xp: 20 }))
-      atualizar((d) => ({ ...d, rigs: { ...d.rigs, [id]: (d.rigs[id] || 0) + 1 } }));
-    toast(`${nome} instalada na fazenda! ⚙️`, "ok");
-  };
 
   const capacidade = hashrate * 3600 * mc.capHoras;
 
@@ -96,14 +86,15 @@ export default function MiningView() {
               {boostAtivo && <Selo tom="ouro">🔥 BOOST x{mc.boostMult}</Selo>}
             </div>
             <p className="mt-1 text-sm text-slate-400">
-              Suas rigs e equipamentos mineram 24h. Capacidade máxima acumulada: {mc.capHoras}h.
+              A Ring automática da rede e seus equipamentos mineram enquanto sua sessão está ativa.
+              Capacidade máxima acumulada: {mc.capHoras}h.
             </p>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/50 p-5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pendente para coleta</p>
-                  <p className="text-4xl font-black text-emerald-400">{fmtMAS(pendente, 4)}</p>
+                  <p className="text-4xl font-black text-emerald-400">{fmtDinamico(pendente)} MAS</p>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Status do Ciclo</span>
@@ -155,19 +146,35 @@ export default function MiningView() {
                 <Botao variante="sucesso" onClick={coletar} disabled={pendente <= 0.0001}>
                   Coletar {fmtMAS(pendente)}
                 </Botao>
-                <Botao variante="ouro" disabled={boostAtivo || data.saldo < mc.boostPreco} onClick={ativarBoost}>
-                  {boostAtivo
-                    ? `Ativo · ${Math.ceil((boostAte - Date.now()) / 1000)}s`
-                    : `Boost x${mc.boostMult} (${fmtMAS(mc.boostPreco)})`}
-                </Botao>
+                {mc.boostAtivo && (
+                  <button
+                    disabled={boostAtivo || data.saldo < mc.boostPreco}
+                    onClick={ativarBoost}
+                    className="relative rounded-xl px-4 py-2.5 text-sm font-bold text-slate-950 transition-all duration-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{
+                      background: `linear-gradient(110deg, ${mc.boostCor}, ${mc.boostCor}cc)`,
+                      boxShadow: `0 6px 24px -8px ${mc.boostCor}`,
+                    }}
+                  >
+                    {boostAtivo
+                      ? `🔥 Ativo · ${Math.ceil((boostAte - Date.now()) / 1000)}s`
+                      : `⚡ Boost x${mc.boostMult} (${fmtMAS(mc.boostPreco)})`}
+                  </button>
+                )}
+                <span
+                  className={`inline-flex items-center rounded-xl border px-4 py-2.5 text-sm font-black ${
+                    mc.ringAtiva !== false
+                      ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-300"
+                      : "border-rose-400/40 bg-rose-500/15 text-rose-300"
+                  }`}
+                  title={mc.ringDesc || "Ring automática da rede MAScrypto"}
+                >
+                  {mc.ringAtiva !== false ? "⚡ Ring Ativada" : "🔴 Ring Indisponível"}
+                </span>
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="text-slate-500">Rigs</p>
-                <p className="font-black text-white">{fmtNum(detalheHash.rigs, 2)}</p>
-              </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
               <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
                 <p className="text-slate-500">Equipamentos</p>
                 <p className="font-black text-cyan-300">{fmtNum(detalheHash.itens, 2)}</p>
@@ -189,7 +196,6 @@ export default function MiningView() {
                 >
                   <span className="absolute inset-0 animate-[girar_9s_linear_infinite] rounded-full bg-[conic-gradient(from_0deg,#f0abfc,#22d3ee,#fbbf24,#f0abfc)] opacity-80 blur-[2px]" />
                   <span className="absolute inset-[6px] rounded-full bg-slate-950" />
-                  <span className="absolute inset-0 animate-ping rounded-full border border-fuchsia-400/30" />
                   <span className="relative text-7xl transition-transform duration-200 group-hover:rotate-12 group-active:scale-90">
                     ⛏️
                   </span>
@@ -228,50 +234,37 @@ export default function MiningView() {
         </div>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="border-cyan-500/20 bg-cyan-500/[0.04]">
+        <h3 className="font-black text-white">Como funciona a Ring Automática?</h3>
+        <div className="mt-3 grid gap-3 text-sm text-slate-300 md:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="font-black text-cyan-300">⚡ Unidade padrão</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              A Ring é a unidade de processamento de mineração padrão da rede MAScrypto. Ela é invisível e automática.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="font-black text-emerald-300">✅ Começa com você</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              Mesmo sem comprar itens ou cadastrar equipamentos, todo usuário já começa minerando com a Ring disponível após o cadastro.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <p className="font-black text-amber-300">🛒 Itens somam potência</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              GPUs, periféricos e itens comprados na Loja adicionam H/s sobre a base da Ring automática.
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-[11px] text-slate-500">
+          Ring atual: <b className="text-white">{mc.ringNome || "Ring MAS"}</b> · Base: <b className="text-cyan-300">{fmtHS(mc.ringAtiva !== false ? mc.ringHashrate || 0 : 0)}</b>
+        </p>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <Estat emoji="⚡" titulo="Hashrate total" valor={fmtHS(hashrate)} cor="text-cyan-300" />
         <Estat emoji="💎" titulo="Total minerado" valor={fmtMAS(data.totalMinerado)} cor="text-emerald-300" />
         <Estat emoji="🖱️" titulo="Cliques" valor={fmtNum(data.cliquesMinerados || 0, 0)} />
-        <Estat emoji="🏗️" titulo="Rigs ativas" valor={fmtNum(Object.values(data.rigs).reduce((a, b) => a + b, 0), 0)} />
-      </div>
-
-      <div>
-        <h3 className="mb-3 text-lg font-black text-white">🏭 Fazenda de mineração</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {cfg.rigs
-            .filter((r) => r.ativo !== false)
-            .map((r) => {
-              const qtd = data.rigs[r.id] || 0;
-              const custo = Math.round(r.preco * Math.pow(1.15, qtd));
-              return (
-                <Card key={r.id} hover className="flex flex-col p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="text-4xl">{r.emoji}</div>
-                    <Selo tom="violeta">x{qtd}</Selo>
-                  </div>
-                  <h4 className="mt-2 font-bold text-white">{r.nome}</h4>
-                  <p className="text-xs text-slate-400">{r.desc}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-xl bg-white/5 p-2">
-                      <p className="text-slate-500">Potência</p>
-                      <p className="font-bold text-cyan-300">{fmtHS(r.taxa)}</p>
-                    </div>
-                    <div className="rounded-xl bg-white/5 p-2">
-                      <p className="text-slate-500">Energia</p>
-                      <p className="font-bold text-amber-300">{r.energia} kW</p>
-                    </div>
-                  </div>
-                  <Botao
-                    className="mt-3 w-full"
-                    disabled={data.saldo < custo}
-                    onClick={() => comprarRig(r.id, r.preco, r.nome)}
-                  >
-                    Comprar · {fmtMAS(custo)}
-                  </Botao>
-                </Card>
-              );
-            })}
-        </div>
       </div>
     </div>
   );

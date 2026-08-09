@@ -47,7 +47,7 @@ export default function Ranking() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-black text-white">Ranking Global MAS</h2>
-            <p className="text-sm text-slate-400">Somente contas reais cadastradas no Firestore, atualizadas em tempo real.</p>
+            <p className="text-sm text-slate-400">Somente contas reais da rede — atualizado em tempo real.</p>
           </div>
           <Selo tom="verde">● {usuarios.length} usuários reais</Selo>
         </div>

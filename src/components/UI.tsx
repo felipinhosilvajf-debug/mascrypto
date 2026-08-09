@@ -371,6 +371,31 @@ export function ArteItem({
   return <span className={cn(tamanho, "leading-none drop-shadow-lg", className)}>{emoji}</span>;
 }
 
+export function AvatarVisual({
+  avatar,
+  imagem,
+  className,
+  emojiClassName = "text-4xl",
+}: {
+  avatar: string;
+  imagem?: string;
+  className?: string;
+  emojiClassName?: string;
+}) {
+  const [erro, setErro] = useState(false);
+  if (imagem && !erro) {
+    return (
+      <img
+        src={imagem}
+        alt="Avatar"
+        onError={() => setErro(true)}
+        className={cn("h-12 w-12 rounded-full object-cover ring-2 ring-white/10", className)}
+      />
+    );
+  }
+  return <span className={cn(emojiClassName, className)}>{avatar}</span>;
+}
+
 /* ------------------------------ ESTATÍSTICA ------------------------------ */
 export function Estat({
   emoji,

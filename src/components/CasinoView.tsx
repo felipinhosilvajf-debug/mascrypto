@@ -154,7 +154,6 @@ export default function CasinoView() {
                   : "border-amber-400/60 bg-[linear-gradient(135deg,rgba(251,191,36,.22),rgba(217,70,239,.12))] shadow-[0_0_28px_-10px_rgba(251,191,36,.9)] hover:-translate-y-1.5 hover:border-amber-300"
               }`}
             >
-              <span className="pointer-events-none absolute inset-0 animate-[neonRing_2.6s_ease-in-out_infinite] rounded-2xl" />
               <span className="absolute right-2 top-2 animate-pulse rounded-full bg-amber-400 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-900">
                 ★ Destaque
               </span>
@@ -235,11 +234,6 @@ export default function CasinoView() {
             <div className="animate-[flutua_3s_ease-in-out_infinite] text-6xl">🎲</div>
             <p className="mt-4 text-lg font-black text-white">Escolha um jogo para começar</p>
             <p className="text-sm text-slate-400">Todos os prêmios caem direto na sua carteira MAS.</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Selo tom="verde">Pagamento instantâneo</Selo>
-              <Selo tom="ciano">Provably fair</Selo>
-              <Selo tom="ouro">RTP dinâmico</Selo>
-            </div>
           </Card>
         )
       )}

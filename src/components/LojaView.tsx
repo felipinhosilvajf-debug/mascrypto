@@ -2,16 +2,14 @@ import { useMemo, useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { CATEGORIAS, infoCategoria, type Categoria, type ItemLoja } from "../lib/catalogo";
-import { SLOTS } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp } from "../lib/economia";
 import { Abas, ArteItem, Barra, Botao, Card, Modal, Selo, Vazio } from "./UI";
 
 type Filtro = "todos" | Categoria;
 
 export default function LojaView() {
-  const { data, comprarItem, equipar, desequipar, toast } = useApp();
+  const { data, comprarItem } = useApp();
   const { cfg } = useConfig();
-  const [aba, setAba] = useState<"loja" | "inventario">("loja");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [detalhe, setDetalhe] = useState<ItemLoja | null>(null);
 
@@ -24,9 +22,6 @@ export default function LojaView() {
     filtro === "todos" ? lista : lista.filter((i) => i.categoria === filtro);
 
   const daLoja = filtrar(catalogo).sort((a, b) => a.nivelMin - b.nivelMin || a.preco - b.preco);
-  const meus = filtrar(cfg.itens.filter((i) => data.itens.includes(i.id)));
-  const equipadoEm = (id: string) => Object.entries(data.equipados).find(([, v]) => v === id)?.[0];
-
   const abasCat = [
     { id: "todos" as Filtro, nome: "Todos", emoji: "✨" },
     ...CATEGORIAS.map((c) => ({ id: c.id as Filtro, nome: c.nome, emoji: c.emoji })),
@@ -60,20 +55,16 @@ export default function LojaView() {
         )}
       </Card>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Abas
-          abas={[
-            { id: "loja" as const, nome: "Loja", emoji: "🛍️" },
-            { id: "inventario" as const, nome: `Inventário (${data.itens.length})`, emoji: "🎒" },
-          ]}
-          ativa={aba}
-          onChange={setAba}
-        />
-      </div>
+      <Card className="border-cyan-500/20 bg-cyan-500/[0.05] p-3">
+        <p className="text-xs font-bold text-slate-300">
+          O MAS Market agora é focado exclusivamente em compras. Itens vestíveis ficam no Armário/RPG do Quarto,
+          e hardware/móveis são gerenciados diretamente no Quarto.
+        </p>
+      </Card>
 
       <Abas abas={abasCat} ativa={filtro} onChange={setFiltro} />
 
-      {aba === "loja" ? (
+      {(
         daLoja.length === 0 ? (
           <Card><Vazio emoji="📦" titulo="Nenhum item nesta categoria" /></Card>
         ) : (
@@ -130,93 +121,6 @@ export default function LojaView() {
             })}
           </div>
         )
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
-          <Card className="h-fit">
-            <h3 className="mb-3 font-black text-white">🧍 Equipado</h3>
-            <div className="space-y-1.5">
-              {SLOTS.map((s) => {
-                const id = data.equipados[s.id];
-                const it = cfg.itens.find((x) => x.id === id);
-                return (
-                  <div
-                    key={s.id}
-                    className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] p-2"
-                  >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-black/40 text-lg">
-                      {it ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-xl" className="h-7 w-7" /> : s.emoji}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{s.nome}</p>
-                      <p className="truncate text-xs font-bold text-white">{it ? it.nome : "Vazio"}</p>
-                    </div>
-                    {it && (
-                      <button
-                        onClick={() => desequipar(s.id)}
-                        className="rounded-lg bg-rose-500/15 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-500/25"
-                      >
-                        Tirar
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-
-          {meus.length === 0 ? (
-            <Card>
-              <Vazio emoji="🎒" titulo="Inventário vazio" texto="Compre itens na aba Loja para começar." />
-            </Card>
-          ) : (
-            <div className="grid h-fit gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {meus.map((i) => {
-                const slot = equipadoEm(i.id);
-                const info = infoCategoria(i.categoria);
-                const podeEquipar = !!(i.slot || info.slot);
-                return (
-                  <Card key={i.id} hover className={`p-4 ${slot ? "border-emerald-400/40" : ""}`}>
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-black/30">
-                        <ArteItem emoji={i.emoji} imagem={i.imagem} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-bold text-white">{i.nome}</p>
-                        <p className="text-[11px] text-slate-400">{info.nome}</p>
-                        {i.hs > 0 && <Selo tom="ciano" className="mt-1">⚡ {fmtHS(i.hs)}</Selo>}
-                        {slot && <Selo tom="verde" className="mt-1">✓ Equipado</Selo>}
-                      </div>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      {podeEquipar ? (
-                        slot ? (
-                          <Botao variante="ghost" className="flex-1 py-1.5 text-xs" onClick={() => desequipar(slot)}>
-                            Desequipar
-                          </Botao>
-                        ) : (
-                          <Botao variante="sucesso" className="flex-1 py-1.5 text-xs" onClick={() => equipar(i.id)}>
-                            Equipar
-                          </Botao>
-                        )
-                      ) : (
-                        <Botao
-                          variante="neon"
-                          className="flex-1 py-1.5 text-xs"
-                          onClick={() => toast("Vá ao Quarto Virtual para posicionar este móvel 🏠", "info")}
-                        >
-                          Decoração
-                        </Botao>
-                      )}
-                      <Botao variante="ghost" className="px-3 py-1.5 text-xs" onClick={() => setDetalhe(i)}>
-                        ℹ️
-                      </Botao>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </div>
       )}
 
       <Modal aberto={!!detalhe} onFechar={() => setDetalhe(null)} titulo={detalhe?.nome || ""} largura="max-w-md">

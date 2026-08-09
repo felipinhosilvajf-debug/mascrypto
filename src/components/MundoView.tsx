@@ -64,7 +64,24 @@ export default function MundoView({
 
   if (!data || !user) return null;
 
+  const meuNivel = nivelPorXp(data.xp);
+  const reqMundo = cfg.requisitosNivel?.acessarMundo || 1;
+  const reqVisitar = cfg.requisitosNivel?.visitarQuartos || 1;
+
+  if (meuNivel < reqMundo) {
+    return (
+      <Card glow className="py-14 text-center">
+        <div className="text-5xl">🔒</div>
+        <h2 className="mt-3 text-xl font-black text-white">Mundo bloqueado</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          A aba Mundo exige nível {reqMundo}. Seu nível atual: {meuNivel}.
+        </p>
+      </Card>
+    );
+  }
+
   const entrar = (dono: UserData) => {
+    if (meuNivel < reqVisitar) return toast(`Visitar quartos exige nível ${reqVisitar}`, "erro");
     if (dono.uid === user.uid) return onEntrarQuarto?.(user.uid);
     if (dono.quartoAberto === false) return toast("Este quarto está fechado para visitas 🔒", "erro");
     onEntrarQuarto?.(dono.uid);

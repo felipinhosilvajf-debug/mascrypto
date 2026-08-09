@@ -7,13 +7,11 @@ import {
   CONFIG_PADRAO,
   ITENS_PADRAO,
   JOGOS_META,
-  RIGS_PADRAO,
   jogoPadrao,
   type Banner,
   type ConfigGlobal,
   type ItemLoja,
   type JogoConfig,
-  type Rig,
 } from "../lib/catalogo";
 
 const LS_CONFIG = "mascrypto:config";
@@ -23,8 +21,6 @@ interface CtxConfig {
   salvarConfig: (patch: Partial<ConfigGlobal>) => void;
   salvarItem: (item: ItemLoja) => void;
   excluirItem: (id: string) => void;
-  salvarRig: (rig: Rig) => void;
-  excluirRig: (id: string) => void;
   salvarJogo: (jogo: JogoConfig) => void;
   toggleJogo: (id: string, ativo: boolean) => void;
   jogo: (id: string) => JogoConfig;
@@ -50,7 +46,13 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     bilheteria: { ...CONFIG_PADRAO.bilheteria, ...(bruto?.bilheteria || {}) },
     overrides: { ...CONFIG_PADRAO.overrides, ...(bruto?.overrides || {}) },
     visual: { ...CONFIG_PADRAO.visual, ...(bruto?.visual || {}) },
+    landing: {
+      ...CONFIG_PADRAO.landing,
+      ...(bruto?.landing || {}),
+      features: bruto?.landing?.features?.length ? bruto.landing.features : CONFIG_PADRAO.landing.features,
+    },
     modulos: { ...CONFIG_PADRAO.modulos, ...(bruto?.modulos || {}) },
+    requisitosNivel: { ...CONFIG_PADRAO.requisitosNivel, ...(bruto?.requisitosNivel || {}) },
     custoSlotHardware: bruto?.custoSlotHardware ?? CONFIG_PADRAO.custoSlotHardware,
     limiteSlotHardwareGlobal: bruto?.limiteSlotHardwareGlobal ?? CONFIG_PADRAO.limiteSlotHardwareGlobal,
   };
@@ -65,7 +67,6 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
   if (c.grafico.suavizacao < 0) c.grafico.suavizacao = 0;
   if (c.grafico.suavizacao > 0.98) c.grafico.suavizacao = 0.98;
   c.itens = Array.isArray(bruto?.itens) && bruto!.itens.length ? bruto!.itens : ITENS_PADRAO;
-  c.rigs = Array.isArray(bruto?.rigs) && bruto!.rigs.length ? bruto!.rigs : RIGS_PADRAO;
   c.banners = Array.isArray(bruto?.banners) && bruto!.banners.length ? bruto!.banners : BANNERS_PADRAO;
 
   // Migra jogos: versões antigas guardavam boolean (ativo); agora guardam JogoConfig completo.
@@ -149,13 +150,6 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
 
   const excluirItem = useCallback((id: string) => aplicar({ itens: cfg.itens.filter((i) => i.id !== id) }), [aplicar, cfg.itens]);
 
-  const salvarRig = useCallback(
-    (rig: Rig) => aplicar({ rigs: cfg.rigs.some((r) => r.id === rig.id) ? cfg.rigs.map((r) => (r.id === rig.id ? rig : r)) : [...cfg.rigs, rig] }),
-    [aplicar, cfg.rigs],
-  );
-
-  const excluirRig = useCallback((id: string) => aplicar({ rigs: cfg.rigs.filter((r) => r.id !== id) }), [aplicar, cfg.rigs]);
-
   const salvarJogo = useCallback(
     (jogo: JogoConfig) => aplicar({ jogos: { ...cfg.jogos, [jogo.id]: jogo } }),
     [aplicar, cfg.jogos],
@@ -202,8 +196,6 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         salvarConfig: aplicar,
         salvarItem,
         excluirItem,
-        salvarRig,
-        excluirRig,
         salvarJogo,
         toggleJogo,
         jogo,
