@@ -61,6 +61,8 @@ export interface UserData {
   tema: string;
   quarto: Record<string, { x: number; y: number }>;
   avatarPos: { x: number; y: number };
+  lastMsg?: string;
+  lastMsgTs?: number;
   ultimaColeta: number;
   /** Data (YYYY-MM-DD) do último resgate diário — validado no servidor. */
   lastDailyClaim: string;

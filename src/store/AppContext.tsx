@@ -95,6 +95,23 @@ interface Ctx {
   registrarAposta: (jogo: string, aposta: number, ganho: number) => void;
   minerarClique: (mas: number) => void;
   coletarDiario: () => Promise<void>;
+  /* ---- Mineração global (roda em qualquer página do site) ---- */
+  /** Ligada/desligada manualmente pelo usuário. */
+  minerandoManual: boolean;
+  /** true quando a aba/site está visível (Page Visibility API). */
+  siteVisivel: boolean;
+  /** Estado efetivo: minerandoManual && siteVisivel. */
+  minerandoAtivo: boolean;
+  /** MAS acumulados aguardando coleta. */
+  pendenteMineracao: number;
+  /** Alterna o estado manual da mineração. */
+  toggleMineracao: () => void;
+  /** Coleta o MAS pendente para o saldo. */
+  coletarMineracao: () => void;
+  /** Ativa o boost pago (multiplicador temporário). */
+  ativarBoost: () => void;
+  /** Timestamp (ms) até quando o boost fica ativo. */
+  boostAte: number;
   comprarItem: (item: ItemLoja) => boolean;
   equipar: (itemId: string) => void;
   desequipar: (slot: string) => void;
@@ -103,6 +120,8 @@ interface Ctx {
   hashrate: number;
   detalheHash: { rigs: number; itens: number; bonusPct: number; total: number };
   precoMAS: number;
+  /** Cotação base (âncora para cálculos financeiros — sem oscilação gráfica). */
+  precoMASBase: number;
   historicoPreco: number[];
   /** Milissegundos restantes até a próxima amostra do gráfico. */
   proximoTickMs: number;
@@ -194,9 +213,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [carregando, setCarregando] = useState(true);
   const [online, setOnline] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  /* Cotação oficial vem da config do Admin (config/global) — atualiza em
-     tempo real via onSnapshot no ConfigContext. O histórico alimenta o gráfico. */
-  const precoMAS = cfg.cotacaoMAS;
+  /* Cotação oficial ancora em cfg.cotacaoMAS para conversões financeiras.
+     O valor exibido na UI (precoMAS) oscila junto com o gráfico — última amostra. */
+  const precoMASBase = cfg.cotacaoMAS; // âncora para conversões
+  // precoMAS exibido = última amostra do gráfico (oscila visualmente)
   const [historicoPreco, setHistoricoPreco] = useState<number[]>(() => {
     const g = cfg.grafico;
     return Array.from({ length: g.janela }, (_, i) =>
@@ -285,6 +305,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const statusPagamentos = useRef<Record<string, string>>({});
   /** Acúmulo de cliques de mineração (evita 1 escrita por clique). */
   const bufferClique = useRef({ mas: 0, cliques: 0, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 });
+
+  /* ---------------- MINERAÇÃO GLOBAL (persiste entre páginas) ---------------- */
+  const [minerandoManual, setMinerandoManual] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("mas:minerando") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [siteVisivel, setSiteVisivel] = useState<boolean>(() => !document.hidden);
+  const [pendenteMineracao, setPendenteMineracao] = useState(0);
+  const [boostAte, setBoostAte] = useState(0);
+  const minerandoAtivo = minerandoManual && siteVisivel;
 
   const toast = useCallback((msg: string, tipo: Toast["tipo"] = "info") => {
     const id = Date.now() + Math.random();
@@ -444,6 +477,112 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const detalheHash = useMemo(() => calcularHash(data, cfg), [data, cfg]);
+  const hashrate = detalheHash.total;
+
+  /* ============================================================
+     MOTOR DE MINERAÇÃO GLOBAL
+     Roda no Provider (montado uma única vez), então continua ativo
+     em qualquer página interna: Início, Cassino, Quarto, Carteira...
+     Só pausa quando o site fica oculto (troca de aba/app) ou o usuário
+     clica em Pausar. Persistência do estado manual em localStorage.
+     ============================================================ */
+
+  // Page Visibility API — pausa automática ao sair do site
+  useEffect(() => {
+    const onVis = () => setSiteVisivel(!document.hidden);
+    const onFocus = () => setSiteVisivel(!document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", () => setSiteVisivel(!document.hidden));
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  // Persiste a escolha manual do usuário
+  useEffect(() => {
+    try {
+      localStorage.setItem("mas:minerando", minerandoManual ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [minerandoManual]);
+
+  // Acúmulo do MAS pendente (baseado no tempo desde a última coleta)
+  const hashrateRef = useRef(hashrate);
+  hashrateRef.current = hashrate;
+  const boostAteRef = useRef(0);
+  boostAteRef.current = boostAte;
+
+  useEffect(() => {
+    if (!minerandoAtivo) return;
+    const cap = cfg.mineracao.capHoras || 8;
+    const i = setInterval(() => {
+      const d = dataRef.current;
+      if (!d) return;
+      const dt = (Date.now() - (d.ultimaColeta || Date.now())) / 1000;
+      const mult = Date.now() < boostAteRef.current ? cfg.mineracao.boostMult || 1 : 1;
+      const pend = Math.min(hashrateRef.current * dt * mult, hashrateRef.current * 3600 * cap);
+      setPendenteMineracao(pend);
+    }, 500);
+    return () => clearInterval(i);
+  }, [minerandoAtivo, cfg.mineracao.capHoras, cfg.mineracao.boostMult]);
+
+  // Zera o painel visual quando a mineração é pausada
+  useEffect(() => {
+    if (!minerandoManual) {
+      // mantém o pendente acumulado para coleta, mas para de crescer
+    }
+  }, [minerandoManual]);
+
+  const toggleMineracao = useCallback(() => {
+    setMinerandoManual((v) => {
+      const novo = !v;
+      if (novo) {
+        // ao iniciar, reancora a base de tempo para não creditar tempo ocioso
+        atualizar((d) => ({ ...d, ultimaColeta: Date.now() }));
+      }
+      return novo;
+    });
+  }, [atualizar]);
+
+  const coletarMineracao = useCallback(() => {
+    const d = dataRef.current;
+    if (!d) return;
+    const v = pendenteMineracao;
+    if (v <= 0.0001) {
+      toast("Nada para coletar ainda ⛏️", "info");
+      return;
+    }
+    atualizar((u) => ({
+      ...u,
+      saldo: u.saldo + v,
+      totalMinerado: u.totalMinerado + v,
+      ultimaColeta: Date.now(),
+      xp: u.xp + Math.floor(v * (cfg.xpPorMAS || 0.2)),
+      historico: [
+        { t: "Mineração · Coleta", v, d: "Bloco processado", ts: Date.now(), moeda: "MAS" as const },
+        ...u.historico,
+      ].slice(0, 60),
+    }));
+    setPendenteMineracao(0);
+    toast(`+${v.toFixed(4)} MAS coletados ⛏️`, "ok");
+  }, [atualizar, pendenteMineracao, cfg.xpPorMAS, toast]);
+
+  const ativarBoost = useCallback(() => {
+    if (Date.now() < boostAteRef.current) return;
+    const mc = cfg.mineracao;
+    const d = dataRef.current;
+    if (!d) return;
+    if (d.saldo < mc.boostPreco) {
+      toast("Saldo insuficiente para o boost", "erro");
+      return;
+    }
+    atualizar((u) => ({ ...u, saldo: u.saldo - mc.boostPreco }));
+    setBoostAte(Date.now() + (mc.boostSegundos || 60) * 1000);
+    toast(`Boost x${mc.boostMult} ativo por ${mc.boostSegundos}s 🔥`, "ok");
+  }, [atualizar, cfg.mineracao, toast]);
 
   /* ---------------- CASSINO ---------------- */
   const registrarAposta = useCallback(
@@ -745,7 +884,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removerDoQuarto,
         hashrate: detalheHash.total,
         detalheHash,
-        precoMAS,
+        minerandoManual,
+        siteVisivel,
+        minerandoAtivo,
+        pendenteMineracao,
+        toggleMineracao,
+        coletarMineracao,
+        ativarBoost,
+        boostAte,
+        precoMAS: historicoPreco[historicoPreco.length - 1] ?? precoMASBase,
+        precoMASBase,
         historicoPreco,
         proximoTickMs,
         desbloquearAdmin,

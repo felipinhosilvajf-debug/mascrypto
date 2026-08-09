@@ -307,6 +307,20 @@ export const CONFIG_GRAFICO_PADRAO: ConfigGrafico = {
   precoMax: 0,
 };
 
+export interface ConfigOverrides {
+  usuariosReal: boolean; // se false, usa valor ficticio ou multiplicador
+  usuariosFicticio: number;
+  masFicticio: number;
+  apostasFicticio: number;
+  mineradoresFicticio: number;
+}
+
+export interface ConfigVisual {
+  sloganPhrase: string;
+  particulasAtivas: boolean;
+  neonGlowAtivo: boolean;
+}
+
 /* ------------------- CONFIG GLOBAL ------------------- */
 export interface ConfigGlobal {
   versao: number;
@@ -330,11 +344,35 @@ export interface ConfigGlobal {
   xpPorMAS: number;
   xpPorAposta: number;
   anuncio: string;
+  /** Configuração da recompensa diária de login. */
+  recompensaDiaria: ConfigRecompensaDiaria;
+  /** Configuração da bilheteria de blocos. */
+  bilheteria: ConfigBilheteria;
+  overrides: ConfigOverrides;
+  visual: ConfigVisual;
   atualizadoEm: number;
 }
 
+export interface ConfigRecompensaDiaria {
+  ativa: boolean;
+  premios: number[]; // um valor por dia de streak (índice 0 = dia 1)
+  multiplicadorStreak: number; // não usado diretamente; para customização futura
+}
+
+export interface ConfigBilheteria {
+  ativa: boolean;
+  custoBilhete: number;       // MAS por bilhete
+  taxaCasa: number;           // MAS de taxa por bilhete
+  totalBlocos: number;        // sempre 50
+  duracaoMs: number;          // duração de cada rodada em ms
+  sorteioEmMs: number;        // timestamp do próximo sorteio (0 = admin define)
+  rodadaAtual: number;        // contador de rodadas
+  poteAtual: number;          // MAS acumulados na rodada atual
+  pausada: boolean;
+}
+
 export const CONFIG_PADRAO: ConfigGlobal = {
-  versao: 6,
+  versao: 8,
   itens: ITENS_PADRAO,
   rigs: RIGS_PADRAO,
   jogos: Object.fromEntries(JOGOS_META.map((j) => [j.id, jogoPadrao(j.id)])),
@@ -363,5 +401,33 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   xpPorMAS: 0.2,
   xpPorAposta: 0.1,
   anuncio: "🎉 Bem-vindo à rede MAS! Recompensa diária liberada — colete todo dia e suba de nível.",
+  recompensaDiaria: {
+    ativa: true,
+    premios: [150, 300, 500, 800, 1200, 2000, 5000],
+    multiplicadorStreak: 1,
+  },
+  bilheteria: {
+    ativa: true,
+    custoBilhete: 2,
+    taxaCasa: 0.5,
+    totalBlocos: 50,
+    duracaoMs: 3600000, // 1h
+    sorteioEmMs: 0,
+    rodadaAtual: 1,
+    poteAtual: 0,
+    pausada: false,
+  },
+  overrides: {
+    usuariosReal: true,
+    usuariosFicticio: 1842,
+    masFicticio: 5213000,
+    apostasFicticio: 128400,
+    mineradoresFicticio: 963,
+  },
+  visual: {
+    sloganPhrase: "MINE. CONVERTA. EVOLUA.",
+    particulasAtivas: true,
+    neonGlowAtivo: true,
+  },
   atualizadoEm: 0,
 };

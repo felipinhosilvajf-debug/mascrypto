@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Bilheteria from "../games/Bilheteria";
 import { Card, Selo, Vazio } from "./UI";
 import { Bomb, Building2, CircleDot, Coins, Dice5, Disc3, GitFork, Rocket, Spade, type LucideIcon } from "lucide-react";
 import { CaraCoroa, Crash, Dados, Double, Mines, Plinko, Roleta, Slots, Torre } from "../games/Jogos";
@@ -41,7 +42,7 @@ const BRILHOS: Record<string, string> = {
 };
 
 export default function CasinoView() {
-  const { data } = useApp();
+  const { data, ehAdmin } = useApp();
   const { cfg, jogoAtivo } = useConfig();
   const [ativo, setAtivo] = useState<string | null>(null);
   const [, force] = useState(0);
@@ -152,9 +153,11 @@ export default function CasinoView() {
               </div>
               <p className="relative mt-2 text-sm font-black text-white">{j.nome}</p>
               <p className="relative text-[10px] leading-tight text-slate-400">{j.desc}</p>
-              <Selo tom="ciano" className="relative mt-1.5">
-                RTP {Math.round((j.rtp ?? 0.97) * 100)}%
-              </Selo>
+              {ehAdmin && (
+                <Selo tom="ciano" className="relative mt-1.5">
+                  RTP {Math.round((j.rtp ?? 0.97) * 100)}%
+                </Selo>
+              )}
             </button>;
             })()
           ))}
@@ -178,6 +181,20 @@ export default function CasinoView() {
             </div>
           </Card>
         )
+      )}
+
+      {/* ── Bilheteria em destaque ── */}
+      {cfg.bilheteria.ativa && (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-0.5 text-[11px] font-black uppercase tracking-widest text-amber-300">
+              🎟️ Jogo em Destaque
+            </span>
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+          </div>
+          <Bilheteria />
+        </div>
       )}
 
       <p className="text-center text-[11px] text-slate-600">

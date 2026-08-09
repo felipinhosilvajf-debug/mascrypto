@@ -5,49 +5,45 @@ import { fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
 import { Barra, Botao, Card, Estat, Selo } from "./UI";
 
 export default function MiningView() {
-  const { data, atualizar, mover, minerarClique, hashrate, detalheHash, toast } = useApp();
+  const {
+    data,
+    atualizar,
+    mover,
+    minerarClique,
+    hashrate,
+    detalheHash,
+    toast,
+    // ---- mineração global (roda em qualquer página) ----
+    minerandoManual,
+    siteVisivel,
+    minerandoAtivo,
+    pendenteMineracao,
+    toggleMineracao,
+    coletarMineracao,
+    ativarBoost,
+    boostAte,
+  } = useApp();
   const { cfg } = useConfig();
-  const [pendente, setPendente] = useState(0);
   const [pulso, setPulso] = useState(0);
   const [pops, setPops] = useState<{ id: number; x: number; y: number; v: number; crit: boolean }[]>([]);
-  const [boostAte, setBoostAte] = useState(0);
   const ultimoClique = useRef(0);
   const cliquesJanela = useRef<number[]>([]);
 
   const mc = cfg.mineracao;
   const boostAtivo = Date.now() < boostAte;
+  const pendente = pendenteMineracao;
 
+  /* Pulso visual da barra enquanto minerando */
   useEffect(() => {
-    if (!data) return;
-    const i = setInterval(() => {
-      const dt = (Date.now() - data.ultimaColeta) / 1000;
-      const mult = Date.now() < boostAte ? mc.boostMult : 1;
-      setPendente(Math.min(hashrate * dt * mult, hashrate * 3600 * mc.capHoras));
-      setPulso((p) => (p + 2) % 100);
-    }, 200);
+    if (!minerandoAtivo) return;
+    const i = setInterval(() => setPulso((p) => (p + 2) % 100), 200);
     return () => clearInterval(i);
-  }, [data, hashrate, boostAte, mc.boostMult, mc.capHoras]);
+  }, [minerandoAtivo]);
 
   if (!data) return null;
   const nivel = nivelPorXp(data.xp);
 
-  const coletar = () => {
-    if (pendente <= 0.0001) return;
-    const v = pendente;
-    atualizar((d) => ({
-      ...d,
-      saldo: d.saldo + v,
-      totalMinerado: d.totalMinerado + v,
-      ultimaColeta: Date.now(),
-      xp: d.xp + Math.floor(v * cfg.xpPorMAS),
-      historico: [
-        { t: "Mineração · Coleta", v, d: "Bloco processado", ts: Date.now(), moeda: "MAS" as const },
-        ...d.historico,
-      ].slice(0, 60),
-    }));
-    toast(`+${fmtMAS(v)} coletados ⛏️`, "ok");
-    setPendente(0);
-  };
+  const coletar = () => coletarMineracao();
 
   /* ---- MINERAÇÃO POR CLIQUE (configurável pelo Admin) ---- */
   const clicar = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -88,14 +84,6 @@ export default function MiningView() {
     toast(`${nome} instalada na fazenda! ⚙️`, "ok");
   };
 
-  const ativarBoost = () => {
-    if (boostAtivo) return;
-    if (mover({ mas: -mc.boostPreco, titulo: "Mineração · Boost", detalhe: `x${mc.boostMult}` })) {
-      setBoostAte(Date.now() + mc.boostSegundos * 1000);
-      toast(`Boost x${mc.boostMult} ativo por ${mc.boostSegundos}s 🔥`, "ok");
-    }
-  };
-
   const capacidade = hashrate * 3600 * mc.capHoras;
 
   return (
@@ -112,8 +100,29 @@ export default function MiningView() {
             </p>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/50 p-5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pendente para coleta</p>
-              <p className="text-4xl font-black text-emerald-400">{fmtMAS(pendente, 4)}</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pendente para coleta</p>
+                  <p className="text-4xl font-black text-emerald-400">{fmtMAS(pendente, 4)}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Status do Ciclo</span>
+                  {!minerandoManual ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase text-slate-400 bg-white/5 border border-white/10 rounded-full px-2.5 py-0.5">
+                      <span className="h-2 w-2 rounded-full bg-slate-400" /> Pausado
+                    </span>
+                  ) : !siteVisivel ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase text-amber-300 bg-amber-400/15 border border-amber-400/20 rounded-full px-2.5 py-0.5">
+                      <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /> Site Inativo
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase text-emerald-300 bg-emerald-500/15 border border-emerald-500/20 rounded-full px-2.5 py-0.5 shadow-[0_0_15px_-3px_#10b981]">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Minerando...
+                    </span>
+                  )}
+                </div>
+              </div>
+
               <div className="mt-3">
                 <Barra pct={pulso} cor="from-emerald-400 to-cyan-400" altura="h-1.5" />
               </div>
@@ -134,6 +143,15 @@ export default function MiningView() {
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
+                <Botao
+                  variante={minerandoManual ? "ghost" : "primario"}
+                  onClick={() => {
+                    toggleMineracao();
+                    toast(minerandoManual ? "Mineração pausada" : "Mineração iniciada! Continua ativa em todo o site ⛏️", "info");
+                  }}
+                >
+                  {minerandoManual ? "⏸ Pausar Mineração" : "▶ Iniciar Mineração"}
+                </Botao>
                 <Botao variante="sucesso" onClick={coletar} disabled={pendente <= 0.0001}>
                   Coletar {fmtMAS(pendente)}
                 </Botao>

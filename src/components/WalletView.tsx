@@ -24,7 +24,7 @@ const STATUS = {
 };
 
 export default function WalletView() {
-  const { user, data, mover, precoMAS, historicoPreco, proximoTickMs, toast } = useApp();
+  const { user, data, mover, precoMAS, precoMASBase, historicoPreco, proximoTickMs, toast } = useApp();
   const { cfg } = useConfig();
   const [aba, setAba] = useState<Aba>("converter");
   const [direcao, setDirecao] = useState<"MAS_BRL" | "BRL_MAS">("MAS_BRL");
@@ -56,11 +56,12 @@ export default function WalletView() {
   const depositoMinimo = cfg.depositoMinimo ?? DEPOSITO_MINIMO;
   const saqueMinimo = cfg.saqueMinimo ?? SAQUE_MINIMO;
   const bruto = Math.max(0, Number(valorConversao) || 0);
-  const taxaValor = direcao === "MAS_BRL" ? bruto * precoMAS * taxa : bruto * taxa;
+  // conversões financeiras usam precoMASBase (âncora estável, sem oscilação visual)
+  const taxaValor = direcao === "MAS_BRL" ? bruto * precoMASBase * taxa : bruto * taxa;
   const liquido =
     direcao === "MAS_BRL"
-      ? bruto * precoMAS * (1 - taxa)
-      : (bruto * (1 - taxa)) / Math.max(0.01, precoMAS);
+      ? bruto * precoMASBase * (1 - taxa)
+      : (bruto * (1 - taxa)) / Math.max(0.01, precoMASBase);
   const saldoOrigem = direcao === "MAS_BRL" ? data.saldo : data.brl;
   const variacao = historicoPreco.length > 1 ? ((precoMAS - historicoPreco[0]) / historicoPreco[0]) * 100 : 0;
 

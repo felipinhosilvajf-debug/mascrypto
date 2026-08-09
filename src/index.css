@@ -45,6 +45,54 @@ body {
   50% { opacity: 1; }
 }
 
+/* Coin 3D flip */
+@keyframes coin3d {
+  0%   { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+
+/* Win burst */
+@keyframes winBurst {
+  0%   { transform: scale(0.7) rotate(-8deg); opacity: 0; }
+  50%  { transform: scale(1.22) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+/* Neon pulse ring */
+@keyframes neonRing {
+  0%, 100% { box-shadow: 0 0 8px 2px rgba(217,70,239,0.5), 0 0 20px 6px rgba(217,70,239,0.18); }
+  50%       { box-shadow: 0 0 22px 6px rgba(217,70,239,0.9), 0 0 50px 15px rgba(34,211,238,0.22); }
+}
+
+@keyframes jackpotShake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-6px) rotate(-1deg); }
+  40%     { transform: translateX(6px) rotate(1deg); }
+  60%     { transform: translateX(-4px); }
+  80%     { transform: translateX(4px); }
+}
+
+/* Theme variables */
+[data-theme="light"] {
+  --bg-main: #f0f2ff;
+  --bg-card: rgba(255,255,255,0.85);
+  --text-main: #0f0c1e;
+  --border-card: rgba(100,80,200,0.15);
+  color-scheme: light;
+}
+[data-theme="neon"] {
+  --bg-main: #00060f;
+  --bg-card: rgba(0,20,40,0.75);
+  --text-main: #e0faff;
+  --border-card: rgba(0,255,220,0.2);
+}
+[data-theme="dark"], :root {
+  --bg-main: #05040c;
+  --bg-card: rgba(255,255,255,0.04);
+  --text-main: #e2e8f0;
+  --border-card: rgba(255,255,255,0.08);
+}
+
 @keyframes particula {
   0% { transform: translate3d(0, 35px, 0) scale(0); opacity: 0; }
   15% { opacity: .9; transform: translate3d(8px, 10px, 0) scale(1); }

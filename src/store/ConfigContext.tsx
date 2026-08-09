@@ -46,6 +46,10 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     ...(bruto || {}),
     mineracao: { ...CONFIG_PADRAO.mineracao, ...(bruto?.mineracao || {}) },
     grafico: { ...CONFIG_GRAFICO_PADRAO, ...(bruto?.grafico || {}) },
+    recompensaDiaria: { ...CONFIG_PADRAO.recompensaDiaria, ...(bruto?.recompensaDiaria || {}) },
+    bilheteria: { ...CONFIG_PADRAO.bilheteria, ...(bruto?.bilheteria || {}) },
+    overrides: { ...CONFIG_PADRAO.overrides, ...(bruto?.overrides || {}) },
+    visual: { ...CONFIG_PADRAO.visual, ...(bruto?.visual || {}) },
   };
   // Garante limites saudáveis (evita loops travados por config inválida)
   if (c.grafico.intervaloMs < 500) c.grafico.intervaloMs = 500;

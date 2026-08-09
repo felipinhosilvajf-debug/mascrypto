@@ -23,6 +23,7 @@ import {
   type PagamentoManual,
 } from "../lib/pagamentos";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, xpParaNivel } from "../lib/economia";
+import { RecompensaAdmin, BilheteriaAdmin } from "./AdminExtras";
 import {
   Abas,
   ArteItem,
@@ -50,6 +51,8 @@ type AbaAdmin =
   | "tickets"
   | "mineracao"
   | "xp"
+  | "recompensa"
+  | "bilheteria"
   | "config";
 
 const ABAS = [
@@ -61,6 +64,8 @@ const ABAS = [
   { id: "tickets" as const, nome: "Tickets / Suporte", emoji: "🎧" },
   { id: "mineracao" as const, nome: "Mineração", emoji: "⛏️" },
   { id: "xp" as const, nome: "XP e Níveis", emoji: "⭐" },
+  { id: "recompensa" as const, nome: "Recompensa Diária", emoji: "🎁" },
+  { id: "bilheteria" as const, nome: "Bilheteria", emoji: "🎟️" },
   { id: "config" as const, nome: "Configurações", emoji: "⚙️" },
 ];
 
@@ -94,6 +99,8 @@ export default function AdminView() {
       {aba === "tickets" && <TicketsAdmin />}
       {aba === "mineracao" && <MineracaoAdmin />}
       {aba === "xp" && <XpAdmin />}
+      {aba === "recompensa" && <RecompensaAdmin />}
+      {aba === "bilheteria" && <BilheteriaAdmin />}
       {aba === "config" && <ConfigAdmin />}
     </div>
   );
@@ -1589,7 +1596,7 @@ function XpAdmin() {
    ======================================================================== */
 function ConfigAdmin() {
   const { cfg, salvarConfig, restaurarPadrao } = useConfig();
-  const { toast } = useApp();
+  const { toast, precoMAS } = useApp();
   const [conf, setConf] = useState(false);
 
   return (
@@ -1619,34 +1626,109 @@ function ConfigAdmin() {
         </div>
       </Card>
 
-      <Card glow className="border-sky-500/20">
-        <h3 className="font-black text-white">💱 Cotação do MAS (R$)</h3>
+      {/* 📌 Sincronização Dinâmica: Cotação é definida 100% em tempo real pelo gráfico dinâmico do mercado. */}
+      <Card className="border-sky-500/20 bg-gradient-to-r from-cyan-950/20 to-slate-950/40">
+        <h3 className="font-black text-white">📈 Sincronização Dinâmica da Cotação</h3>
         <p className="text-sm text-slate-400">
-          Define 1 MAS = R$ X. Atualiza instantaneamente a conversão na Carteira, Loja e Dashboard de todos os usuários via onSnapshot.
+          O controle manual da cotação foi <b className="text-cyan-300">removido</b>. O valor da moeda MAS acompanha de forma 100% dinâmica a oscilação do mercado em tempo real.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Campo label="Cotação (1 MAS em reais)">
-            <Input
-              type="number"
-              min={0.01}
-              step={0.01}
-              value={cfg.cotacaoMAS}
-              onChange={(e) => {
-                const v = Math.max(0.01, Number(e.target.value));
-                salvarConfig({ cotacaoMAS: v });
-              }}
-            />
-          </Campo>
-          <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.06] p-3 text-sm">
-            <p className="text-slate-400">Pré-visualização</p>
-            <p className="font-black text-white">
-              100 MAS = R$ {fmtNum(100 * cfg.cotacaoMAS, 2)} · 10 MAS = R$ {fmtNum(10 * cfg.cotacaoMAS, 2)}
+          <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/[0.06] p-3 text-sm">
+            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Cotação Atual (Gráfico)</p>
+            <p className="text-2xl font-black text-cyan-300">
+              R$ {fmtNum(precoMAS, 4)}
+            </p>
+            <p className="mt-1 text-[10px] text-slate-500">
+              Todas as transações e conversões usam esta cotação ao vivo.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Âncora de Oscilação</p>
+            <p className="text-lg font-bold text-white">R$ {fmtNum(cfg.cotacaoMAS, 2)}</p>
+            <p className="mt-1 text-[10px] text-slate-500">
+              Definida pela gravidade média do gráfico de mercado.
             </p>
           </div>
         </div>
       </Card>
 
       <GraficoAdmin />
+
+      {/* 📊 PAINEL DE METRICAS E OVERRIDES (Valor fictício/customizado ou real) */}
+      <Card glow className="border-cyan-500/25">
+        <h3 className="font-black text-white">📊 Ajustes e Métricas da Home (Overrides)</h3>
+        <p className="text-sm text-slate-400">
+          Configure se o sistema deve exibir os dados de usuários reais ou usar multiplicadores e valores fictícios na página inicial.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <Switch
+            ligado={cfg.overrides.usuariosReal}
+            onChange={(v) => salvarConfig({ overrides: { ...cfg.overrides, usuariosReal: v } })}
+            rotulo={cfg.overrides.usuariosReal ? "Exibindo dados reais do Firestore" : "Exibindo valores customizados/fictícios"}
+          />
+        </div>
+        {!cfg.overrides.usuariosReal && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Campo label="Usuários na rede" dica="Valor base exibido">
+              <Input
+                type="number"
+                value={cfg.overrides.usuariosFicticio}
+                onChange={(e) => salvarConfig({ overrides: { ...cfg.overrides, usuariosFicticio: Math.max(0, Number(e.target.value)) } })}
+              />
+            </Campo>
+            <Campo label="MAS em circulação" dica="Valor base em MAS">
+              <Input
+                type="number"
+                value={cfg.overrides.masFicticio}
+                onChange={(e) => salvarConfig({ overrides: { ...cfg.overrides, masFicticio: Math.max(0, Number(e.target.value)) } })}
+              />
+            </Campo>
+            <Campo label="Apostas realizadas" dica="Contador fictício">
+              <Input
+                type="number"
+                value={cfg.overrides.apostasFicticio}
+                onChange={(e) => salvarConfig({ overrides: { ...cfg.overrides, apostasFicticio: Math.max(0, Number(e.target.value)) } })}
+              />
+            </Campo>
+            <Campo label="Mineradores ativos" dica="Contador fictício">
+              <Input
+                type="number"
+                value={cfg.overrides.mineradoresFicticio}
+                onChange={(e) => salvarConfig({ overrides: { ...cfg.overrides, mineradoresFicticio: Math.max(0, Number(e.target.value)) } })}
+              />
+            </Campo>
+          </div>
+        )}
+      </Card>
+
+      {/* 🎨 CONFIGURAÇÕES VISUAIS DA HOME */}
+      <Card glow className="border-fuchsia-500/25">
+        <h3 className="font-black text-white">🎨 Configurações de Estilo da Home (Admin)</h3>
+        <p className="text-sm text-slate-400">
+          Personalize as frases de impacto e ative/desative os efeitos gráficos pesados (partículas, neon) para melhor desempenho em aparelhos fracos.
+        </p>
+        <div className="mt-4 space-y-3">
+          <Campo label="Frase de Impacto Principal (Slogan)" dica="Substitui o slogan da Home.">
+            <Input
+              value={cfg.visual.sloganPhrase}
+              onChange={(e) => salvarConfig({ visual: { ...cfg.visual, sloganPhrase: e.target.value } })}
+              placeholder="MINE. CONVERTA. EVOLUA."
+            />
+          </Campo>
+          <div className="grid gap-3 sm:grid-cols-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <Switch
+              ligado={cfg.visual.particulasAtivas}
+              onChange={(v) => salvarConfig({ visual: { ...cfg.visual, particulasAtivas: v } })}
+              rotulo={cfg.visual.particulasAtivas ? "Partículas interativas ativas (Canvas)" : "Partículas desativadas"}
+            />
+            <Switch
+              ligado={cfg.visual.neonGlowAtivo}
+              onChange={(v) => salvarConfig({ visual: { ...cfg.visual, neonGlowAtivo: v } })}
+              rotulo={cfg.visual.neonGlowAtivo ? "Efeito Neon Glow ativo" : "Neon desativado"}
+            />
+          </div>
+        </div>
+      </Card>
 
       <Card>
         <h3 className="font-black text-white">⚙️ Chaves gerais da plataforma</h3>

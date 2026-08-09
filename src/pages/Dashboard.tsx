@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PREMIOS_DIARIOS, useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { Barra, Botao, Card, Estat, GraficoStatus, Selo, Sparkline, Vazio } from "../components/UI";
+import { cn } from "../utils/cn";
 import { CONQUISTAS } from "../lib/types";
 import {
   fmtBRL,
@@ -30,18 +31,27 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
   const [digitado, setDigitado] = useState("");
 
   useEffect(() => {
-    const texto = "MINE. CONVERTA. EVOLUA.";
+    const slogan = cfg.visual?.sloganPhrase || "MINE. CONVERTA. EVOLUA.";
     let i = 0;
     const iv = setInterval(() => {
       i++;
-      setDigitado(texto.slice(0, i));
-      if (i >= texto.length) clearInterval(iv);
+      setDigitado(slogan.slice(0, i));
+      if (i >= slogan.length) clearInterval(iv);
     }, 70);
     return () => clearInterval(iv);
-  }, []);
+  }, [cfg.visual?.sloganPhrase]);
 
   /* Estatísticas da plataforma em tempo real (usuários reais + rede). */
   const carregarStats = useCallback(async () => {
+    if (cfg.overrides && !cfg.overrides.usuariosReal) {
+      setStats({
+        usuarios: cfg.overrides.usuariosFicticio || 0,
+        mas: cfg.overrides.masFicticio || 0,
+        apostas: cfg.overrides.apostasFicticio || 0,
+        mineradores: cfg.overrides.mineradoresFicticio || 0,
+      });
+      return;
+    }
     try {
       const us = await listarUsuarios();
       if (!us.length) return;
@@ -54,7 +64,7 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
     } catch {
       /* offline: mantém base */
     }
-  }, [listarUsuarios]);
+  }, [listarUsuarios, cfg.overrides]);
 
   useEffect(() => {
     carregarStats();
@@ -158,17 +168,23 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
       )}
 
       {/* ---------- HERO CYBERPUNK ---------- */}
-      <section className="relative min-h-[330px] overflow-hidden rounded-[32px] border border-fuchsia-500/20 bg-[#080515] px-5 py-10 shadow-[0_0_90px_-35px_rgba(217,70,239,.8)] sm:px-10">
+      <section
+        className={cn(
+          "relative min-h-[330px] overflow-hidden rounded-[32px] border border-fuchsia-500/20 bg-[#080515] px-5 py-10 sm:px-10",
+          cfg.visual?.neonGlowAtivo && "shadow-[0_0_90px_-35px_rgba(217,70,239,.8)]"
+        )}
+      >
         <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(34,211,238,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(217,70,239,.18)_1px,transparent_1px)] [background-size:42px_42px] [transform:perspective(420px)_rotateX(55deg)_scale(1.5)] [transform-origin:bottom]" />
         <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 animate-[flutua_8s_ease-in-out_infinite] rounded-full bg-fuchsia-600/25 blur-[80px]" />
         <div className="pointer-events-none absolute -bottom-20 right-0 h-64 w-64 animate-[flutua_11s_ease-in-out_infinite_reverse] rounded-full bg-cyan-500/20 blur-[80px]" />
-        {Array.from({ length: 22 }, (_, i) => (
-          <span
-            key={i}
-            className="pointer-events-none absolute h-1 w-1 animate-[particula_5s_linear_infinite] rounded-full bg-cyan-300 shadow-[0_0_8px_#22d3ee]"
-            style={{ left: `${(i * 37) % 100}%`, top: `${(i * 53) % 100}%`, animationDelay: `${(i % 8) * -0.6}s`, animationDuration: `${4 + (i % 5)}s` }}
-          />
-        ))}
+        {cfg.visual?.particulasAtivas !== false &&
+          Array.from({ length: 22 }, (_, i) => (
+            <span
+              key={i}
+              className="pointer-events-none absolute h-1 w-1 animate-[particula_5s_linear_infinite] rounded-full bg-cyan-300 shadow-[0_0_8px_#22d3ee]"
+              style={{ left: `${(i * 37) % 100}%`, top: `${(i * 53) % 100}%`, animationDelay: `${(i % 8) * -0.6}s`, animationDuration: `${4 + (i % 5)}s` }}
+            />
+          ))}
         <div className="relative z-10 max-w-3xl">
           <Selo tom="ciano">REDE MAS // PROTOCOLO ATIVO</Selo>
           <h1 className="mt-5 text-4xl font-black leading-[.95] tracking-[-.04em] text-white sm:text-6xl">

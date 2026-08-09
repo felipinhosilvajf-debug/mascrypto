@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Backpack, Box, Cat, Glasses, HardHat, MonitorCog, Shirt, Sparkles } from "lucide-react";
+import { Backpack, Box, Cat, Glasses, HardHat, MonitorCog, Shirt, Sparkles, Send, MessageSquare } from "lucide-react";
+import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc, query, limit, orderBy } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { AVATARES, SLOTS, STATUS_QUARTO, TEMAS } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
-import { ArteItem, Barra, Botao, Card, Input, Modal } from "./UI";
+import { ArteItem, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
+import { cn } from "../utils/cn";
 
 const COLS = 9;
 const ROWS = 7;
@@ -24,6 +27,31 @@ const slotIcone: Record<string, React.ComponentType<{ className?: string }>> = {
   pet: Cat,
 };
 
+interface JogadorOnline {
+  uid: string;
+  nome: string;
+  avatar: string;
+  avatarPos: { x: number; y: number };
+  equipados: Record<string, string>;
+  lastMsg: string;
+  lastMsgTs: number;
+  status: string;
+  nivel: number;
+  corPatente: string;
+}
+
+interface MensagemChat {
+  id: string;
+  uid: string;
+  nome: string;
+  avatar: string;
+  texto: string;
+  nivel: number;
+  badge: string;
+  corPatente: string;
+  ts: number;
+}
+
 function iso(x: number, y: number) {
   return {
     left: `calc(${CENTRO_X}% + ${(x - y) * (TILE_W / 2)}px)`,
@@ -33,6 +61,7 @@ function iso(x: number, y: number) {
 
 export default function VirtualRoomView() {
   const {
+    user,
     data,
     atualizar,
     posicionarNoQuarto,
@@ -47,16 +76,88 @@ export default function VirtualRoomView() {
   const [sel, setSel] = useState<string | null>(null);
   const [editar, setEditar] = useState(false);
   const [nome, setNome] = useState(data?.nome || "");
-  const [abaLateral, setAbaLateral] = useState<"rpg" | "decoracao">("rpg");
+  const [abaLateral, setAbaLateral] = useState<"rpg" | "decoracao" | "chat">("rpg");
+
+  // Multiplayer states
+  const [jogadores, setJogadores] = useState<JogadorOnline[]>([]);
+  const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
+  const [textoChat, setTextoChat] = useState("");
+  const [enviandoChat, setEnviandoChat] = useState(false);
+
+  const nivel = data ? nivelPorXp(data.xp) : 1;
+  const pat = patente(nivel);
+  const prog = data ? progressoNivel(data.xp) : { atual: 0, necessario: 100, pct: 0 };
+  const tema = data ? TEMAS.find((t) => t.id === data.tema) || TEMAS[0] : TEMAS[0];
+
+  const decorativos = cfg.itens.filter((i) => data?.itens.includes(i.id) && (i.decorativo || i.categoria === "movel"));
+  const naoPosicionados = data ? decorativos.filter((i) => !data.quarto[i.id]) : [];
+
+  /* ── Presença e Sincronização Multiplayer Isométrica ── */
+  useEffect(() => {
+    if (!user || !data) return;
+    const pRef = doc(db, "online_room", user.uid);
+
+    const registrarPresenca = async (pos = data.avatarPos, msg = "", msgTs = 0) => {
+      try {
+        await setDoc(pRef, {
+          uid: user.uid,
+          nome: data.nome,
+          avatar: data.avatar,
+          avatarPos: pos,
+          equipados: data.equipados || {},
+          lastMsg: msg,
+          lastMsgTs: msgTs,
+          status: data.status,
+          nivel: nivelPorXp(data.xp),
+          corPatente: patente(nivelPorXp(data.xp)).cor,
+        } as JogadorOnline);
+      } catch {
+        /* silencia offline */
+      }
+    };
+
+    registrarPresenca();
+
+    // Mantém atualizado se o usuário mudar de avatar ou de roupas
+    registrarPresenca(data.avatarPos, data.lastMsg || "", data.lastMsgTs || 0);
+
+    return () => {
+      deleteDoc(pRef).catch(() => {});
+    };
+  }, [user, data?.nome, data?.avatar, data?.equipados, data?.status, data?.xp, data?.avatarPos]); // eslint-disable-line
+
+  /* ── Escuta outros jogadores no quarto/praça ── */
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "online_room"), (snap) => {
+      const lista: JogadorOnline[] = snap.docs.map((d) => d.data() as JogadorOnline);
+      setJogadores(lista);
+    });
+    return unsub;
+  }, []);
+
+  /* ── Escuta o Chat Global ── */
+  useEffect(() => {
+    const q = query(collection(db, "chat_global"), orderBy("ts", "desc"), limit(40));
+    const unsub = onSnapshot(q, (snap) => {
+      const lista: MensagemChat[] = snap.docs.map((d) => d.data() as MensagemChat);
+      setMensagens(lista.reverse());
+    });
+    return unsub;
+  }, []);
 
   const moverAvatar = useCallback(
-    (x: number, y: number) => {
-      if (!data) return;
+    async (x: number, y: number) => {
+      if (!data || !user) return;
       const nx = Math.max(0, Math.min(COLS - 1, x));
       const ny = Math.max(0, Math.min(ROWS - 1, y));
+
+      // Colisão: impede de andar por cima de móveis já posicionados
+      const ocupado = Object.entries(data.quarto).some(([, p]) => p.x === nx && p.y === ny);
+      if (ocupado) return;
+
       atualizar((d) => ({ ...d, avatarPos: { x: nx, y: ny } }));
     },
-    [atualizar, data],
+    [atualizar, data, user],
   );
 
   /* WASD/setas movem o avatar um tile por vez. */
@@ -76,14 +177,47 @@ export default function VirtualRoomView() {
     return () => window.removeEventListener("keydown", h);
   }, [data, moverAvatar]);
 
-  if (!data) return null;
+  if (!data || !user) return null;
 
-  const nivel = nivelPorXp(data.xp);
-  const pat = patente(nivel);
-  const prog = progressoNivel(data.xp);
-  const tema = TEMAS.find((t) => t.id === data.tema) || TEMAS[0];
-  const decorativos = cfg.itens.filter((i) => data.itens.includes(i.id) && (i.decorativo || i.categoria === "movel"));
-  const naoPosicionados = decorativos.filter((i) => !data.quarto[i.id]);
+  const enviarChat = async () => {
+    if (!textoChat.trim() || enviandoChat) return;
+    setEnviandoChat(true);
+    const texto = textoChat.trim();
+    try {
+      // 1. Envia para o chat global de rolagem
+      await addDoc(collection(db, "chat_global"), {
+        uid: user.uid,
+        nome: data.nome,
+        avatar: data.avatar,
+        texto,
+        nivel,
+        badge: pat.emoji + " " + pat.nome,
+        corPatente: pat.cor,
+        ts: Date.now(),
+      } as MensagemChat);
+
+      // 2. Atualiza a mensagem na cabeça do personagem (multiplayer bubble)
+      const pRef = doc(db, "online_room", user.uid);
+      await setDoc(pRef, {
+        uid: user.uid,
+        nome: data.nome,
+        avatar: data.avatar,
+        avatarPos: data.avatarPos,
+        equipados: data.equipados || {},
+        lastMsg: texto,
+        lastMsgTs: Date.now(),
+        status: data.status,
+        nivel,
+        corPatente: pat.cor,
+      } as JogadorOnline);
+
+      setTextoChat("");
+    } catch {
+      toast("Falha ao enviar mensagem", "erro");
+    } finally {
+      setEnviandoChat(false);
+    }
+  };
 
   const clicarTile = (x: number, y: number) => {
     const itemAqui = Object.entries(data.quarto).find(([, p]) => p.x === x && p.y === y);
@@ -111,13 +245,16 @@ export default function VirtualRoomView() {
             <p className={`text-xs font-bold ${pat.cor}`}>{pat.emoji} {pat.nome} · use WASD/setas ou clique no piso para andar</p>
           </div>
         </div>
-        <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar</Botao>
+        <div className="flex gap-2">
+          <Selo tom="verde">● {jogadores.length} Online</Selo>
+          <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar</Botao>
+        </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_350px]">
-        {/* ---------------- AMBIENTE ISOMÉTRICO ---------------- */}
+      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+        {/* ---------------- AMBIENTE ISOMÉTRICO MULTIPLAYER ---------------- */}
         <Card className="overflow-hidden p-0">
-          <div className={`relative h-[520px] overflow-hidden bg-gradient-to-b ${tema.classe}`}>
+          <div className={`relative h-[530px] overflow-hidden bg-gradient-to-b ${tema.classe}`}>
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(255,255,255,.15),transparent_55%)]" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-36 border-b border-white/10 bg-black/20 [clip-path:polygon(0_0,100%_0,90%_100%,10%_100%)]" />
 
@@ -169,23 +306,64 @@ export default function VirtualRoomView() {
                 );
               })}
 
-              {/* Avatar anda livremente no plano. */}
+              {/* OUTROS JOGADORES ONLINE (Isométrico em Tempo Real) */}
+              {jogadores
+                .filter((p) => p.uid !== user.uid)
+                .map((p) => {
+                  const itemChapeu = cfg.itens.find((i) => i.id === p.equipados?.chapeu);
+                  const itemPet = cfg.itens.find((i) => i.id === p.equipados?.pet);
+                  const mostraBubble = p.lastMsg && Date.now() - p.lastMsgTs < 6000;
+
+                  return (
+                    <div
+                      key={p.uid}
+                      className="pointer-events-none absolute z-25 flex -translate-x-1/2 -translate-y-10 flex-col items-center transition-all duration-300 ease-out"
+                      style={iso(p.avatarPos.x, p.avatarPos.y)}
+                    >
+                      {/* Balão de fala */}
+                      {mostraBubble && (
+                        <div className="absolute -top-16 mb-2 max-w-[140px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-white px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-xl after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-white">
+                          <p className="line-clamp-3 leading-tight">{p.lastMsg}</p>
+                        </div>
+                      )}
+                      <div className="relative text-5xl drop-shadow-[0_12px_8px_rgba(0,0,0,.8)]">
+                        {p.avatar}
+                        {itemChapeu && <span className="absolute -right-3 -top-3 text-xl">{itemChapeu.emoji}</span>}
+                        {itemPet && <span className="absolute -right-7 bottom-0 text-2xl">{itemPet.emoji}</span>}
+                      </div>
+                      <p className="rounded-full bg-black/65 px-2 py-0.5 text-[8px] font-black text-white">
+                        {p.nome} · Nv {p.nivel}
+                      </p>
+                      <span className="mt-1 h-1.5 w-8 rounded-full bg-black/30 blur-[1px]" />
+                    </div>
+                  );
+                })}
+
+              {/* O PROPRIO AVATAR */}
               <div
-                className="pointer-events-none absolute z-30 flex -translate-x-1/2 -translate-y-10 flex-col items-center transition-all duration-300 ease-out"
+                className="pointer-events-none absolute z-30 flex -translate-x-1/2 -translate-y-10 flex-col items-center transition-all duration-200 ease-out"
                 style={iso(data.avatarPos.x, data.avatarPos.y)}
               >
+                {/* Balão do próprio chat */}
+                {data.lastMsg && Date.now() - (data.lastMsgTs || 0) < 6000 && (
+                  <div className="absolute -top-16 mb-2 max-w-[140px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-fuchsia-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-xl after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-fuchsia-600">
+                    <p className="line-clamp-3 leading-tight">{data.lastMsg}</p>
+                  </div>
+                )}
                 <div className="relative text-5xl drop-shadow-[0_12px_8px_rgba(0,0,0,.9)]">
                   {data.avatar}
                   {data.equipados.chapeu && <span className="absolute -right-3 -top-3 text-xl">{cfg.itens.find((i) => i.id === data.equipados.chapeu)?.emoji}</span>}
                   {data.equipados.pet && <span className="absolute -right-7 bottom-0 text-2xl">{cfg.itens.find((i) => i.id === data.equipados.pet)?.emoji}</span>}
                 </div>
-                <p className="rounded-full bg-black/75 px-2 py-0.5 text-[9px] font-black text-white backdrop-blur">{data.nome}</p>
+                <p className="rounded-full bg-fuchsia-600 px-2.5 py-0.5 text-[9px] font-black text-white shadow-[0_0_15px_rgba(217,70,239,0.5)]">
+                  {data.nome} (Você)
+                </p>
                 <span className="mt-1 h-2 w-10 rounded-full bg-black/40 blur-[2px]" />
               </div>
             </div>
 
             <div className="absolute bottom-3 left-3 rounded-xl border border-white/10 bg-black/55 px-3 py-2 text-[10px] text-slate-300 backdrop-blur">
-              {sel ? "Selecione um tile livre para posicionar o móvel" : "Clique no piso para andar · clique no móvel para guardar"}
+              {sel ? "Selecione um tile livre para posicionar o móvel" : "Clique no piso para andar · use o chat para falar em tempo real"}
             </div>
           </div>
 
@@ -205,12 +383,19 @@ export default function VirtualRoomView() {
           </div>
         </Card>
 
-        {/* ---------------- PAINEL RPG ---------------- */}
+        {/* ---------------- PAINEL SOCIAL E EQUIPAMENTOS RPG ---------------- */}
         <div className="space-y-3">
           <div className="flex rounded-xl bg-white/5 p-1">
-            {(["rpg", "decoracao"] as const).map((a) => (
-              <button key={a} onClick={() => setAbaLateral(a)} className={`flex-1 rounded-lg py-2 text-xs font-black transition ${abaLateral === a ? "bg-fuchsia-600/30 text-white" : "text-slate-500"}`}>
-                {a === "rpg" ? "Equipamento RPG" : "Inventário"}
+            {(["rpg", "decoracao", "chat"] as const).map((a) => (
+              <button
+                key={a}
+                onClick={() => setAbaLateral(a)}
+                className={cn(
+                  "flex-1 rounded-lg py-2 text-xs font-black transition",
+                  abaLateral === a ? "bg-fuchsia-600/30 text-white" : "text-slate-500"
+                )}
+              >
+                {a === "rpg" ? "RPG" : a === "decoracao" ? "Mochila" : "Chat Geral"}
               </button>
             ))}
           </div>
@@ -244,10 +429,10 @@ export default function VirtualRoomView() {
                 <div className="mt-1 flex justify-between"><span className="text-slate-500">Bônus equipado</span><b className="text-emerald-300">+{Math.round(detalheHash.bonusPct * 100)}%</b></div>
               </div>
             </Card>
-          ) : (
+          ) : abaLateral === "decoracao" ? (
             <Card className="p-4">
-              <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Itens equipáveis na mochila</p>
-              <div className="max-h-[470px] space-y-2 overflow-y-auto pr-1">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Equipamentos e Acessórios</p>
+              <div className="max-h-[350px] space-y-2 overflow-y-auto pr-1">
                 {cfg.itens.filter((i) => data.itens.includes(i.id) && i.slot).map((i) => {
                   const equipado = Object.values(data.equipados).includes(i.id);
                   return (
@@ -258,6 +443,57 @@ export default function VirtualRoomView() {
                     </div>
                   );
                 })}
+              </div>
+            </Card>
+          ) : (
+            /* ── CHAT EM TEMPO REAL ── */
+            <Card className="p-4 flex flex-col h-[420px]">
+              <div className="flex items-center gap-1.5 mb-3 border-b border-white/5 pb-2">
+                <MessageSquare className="h-4 w-4 text-fuchsia-400" />
+                <h4 className="text-xs font-black text-white uppercase tracking-wider">Chat Geral MAS</h4>
+              </div>
+              
+              {/* Lista de mensagens */}
+              <div className="flex-1 space-y-3 overflow-y-auto pr-1 text-xs mb-3 scrollbar-thin">
+                {mensagens.length === 0 ? (
+                  <p className="text-slate-500 text-center py-10">Envie a primeira mensagem! 🌌</p>
+                ) : (
+                  mensagens.map((m) => (
+                    <div key={m.id} className="flex items-start gap-2">
+                      <span className="text-xl shrink-0">{m.avatar}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-1.5">
+                          <span className="font-bold text-white text-[11px] truncate">{m.nome}</span>
+                          <span className={cn("text-[9px] font-black uppercase rounded bg-white/5 px-1", m.corPatente)}>
+                            {m.badge} · Nv {m.nivel}
+                          </span>
+                        </div>
+                        <p className="text-slate-300 mt-0.5 break-words bg-white/[0.02] p-1.5 rounded-lg border border-white/[0.04]">
+                          {m.texto}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Input de envio */}
+              <div className="flex gap-1.5 mt-auto">
+                <Input
+                  placeholder="Escreva no chat..."
+                  value={textoChat}
+                  onChange={(e) => setTextoChat(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && enviarChat()}
+                  maxLength={120}
+                  className="py-1.5 text-xs flex-1"
+                />
+                <button
+                  onClick={enviarChat}
+                  disabled={!textoChat.trim() || enviandoChat}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-fuchsia-600 text-white hover:bg-fuchsia-500 transition-all active:scale-95 disabled:opacity-40 shrink-0"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
               </div>
             </Card>
           )}
