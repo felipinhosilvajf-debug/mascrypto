@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { fmtDinamico, fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
+import { fmtBRL, fmtDinamico, fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
 import { Barra, Botao, Card, Estat, Selo } from "./UI";
 
 export default function MiningView() {
@@ -10,6 +10,7 @@ export default function MiningView() {
     minerarClique,
     hashrate,
     detalheHash,
+    precoMAS,
     toast,
     // ---- mineração global (roda em qualquer página) ----
     minerandoManual,
@@ -126,7 +127,22 @@ export default function MiningView() {
                 <span>
                   Hashrate: <b className="text-cyan-300">{fmtHS(hashrate)}</b>
                 </span>
-                <span>{fmtHS(hashrate * 3600)}/hora · {fmtHS(hashrate * 3600 * 24)}/dia</span>
+                <span>Cotação: <b className="text-sky-300">{fmtBRL(precoMAS)}</b>/MAS</span>
+              </div>
+
+              {/* ── Projeção de rendimento com conversão em BRL ── */}
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {([
+                  ["Por hora", hashrate * 3600],
+                  ["Por dia",  hashrate * 86400],
+                  ["Acumulado", data.totalMinerado],
+                ] as [string, number][]).map(([rot, val]) => (
+                  <div key={rot} className="rounded-xl border border-white/10 bg-white/5 p-2 text-center">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{rot}</p>
+                    <p className="text-[13px] font-black text-emerald-300">{fmtDinamico(val)}</p>
+                    <p className="text-[10px] font-bold text-sky-300">{fmtBRL(val * precoMAS)}</p>
+                  </div>
+                ))}
               </div>
               <div className="mt-2">
                 <Barra
@@ -224,7 +240,7 @@ export default function MiningView() {
                     }`}
                     style={{ left: p.x, top: p.y }}
                   >
-                    {p.crit ? "CRÍTICO " : ""}+{fmtNum(p.v, 2)}
+                    {p.crit ? "CRÍTICO " : ""}+{fmtDinamico(p.v)} MAS
                   </span>
                 ))}
               </>

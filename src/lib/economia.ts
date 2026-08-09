@@ -14,9 +14,13 @@ export function fmtNum(v: number, casas = 2): string {
 }
 
 /**
- * Saldo em MAS com precisão adaptativa:
- * valores muito pequenos ganham casas extras para não parecerem zero
- * (ex.: 0,0005 MAS), valores maiores caem no padrão de 2 casas.
+ * PRECISÃO PADRÃO DO SISTEMA — 3 casas decimais.
+ * Nunca trunca valores residuais para 0,00.
+ */
+export const CASAS_PADRAO = 3;
+
+/**
+ * Saldo em MAS com precisão global de 3 casas.
  * Se `casas` for informado explicitamente, força esse número de casas.
  */
 export function fmtMAS(v: number, casas?: number): string {
@@ -24,9 +28,14 @@ export function fmtMAS(v: number, casas?: number): string {
   return `${fmtDinamico(v ?? 0)} MAS`;
 }
 
-/** Saldo em reais → "R$ 80,50" */
+/**
+ * Saldo em reais → "R$ 80,50".
+ * Segue a mesma regra anti-zero: valores residuais nunca viram R$ 0,00.
+ */
 export function fmtBRL(v: number): string {
-  return `R$ ${fmtNum(v ?? 0, 2)}`;
+  const n = Number(v) || 0;
+  if (n !== 0 && Math.abs(n) < 0.01) return `R$ ${fmtDinamico(n)}`;
+  return `R$ ${fmtNum(n, 2)}`;
 }
 
 /** Compacto para gráficos/rankings: 1,2M / 34,5k */
@@ -38,23 +47,49 @@ export function fmtCompacto(v: number): string {
 }
 
 /**
- * Precisão adaptativa: mostra casas extras em valores muito baixos e
- * reduz gradualmente conforme o valor cresce — o progresso nunca parece zerado.
- *  - 0 exato        → "0,00"
- *  - >0 e <0,01     → renderiza até o 1º dígito significativo (0,0005 · 0,009)
- *  - >=0,01         → padrão de 2 casas (0,15 · 1,00 · 1.400,00)
+ * REGRA GLOBAL ANTI-ZERO FALSO
+ * ════════════════════════════
+ * Nunca exibe "0,00" quando existe saldo residual > 0.
+ *
+ * 1) Valor exatamente 0            → "0,00"
+ * 2) Fração "limpa" em 2 casas     → 2 casas   (500 → "500,00" · 0,10 → "0,10")
+ * 3) Fração precisa de 3 casas     → 3 casas   (0,105 → "0,105")
+ * 4) Resíduo abaixo de 0,001       → expande até o 1º dígito significativo
+ *
+ * Escala:
+ *   0,00009 → "0,00009"
+ *   0,0001  → "0,0001"
+ *   0,0009  → "0,0009"
+ *   0,001   → "0,001"
+ *   0,009   → "0,009"
+ *   0,01    → "0,01"
+ *   0,09    → "0,09"
+ *   0,10    → "0,10"
+ *   500     → "500,00"
  */
 export function fmtDinamico(v: number): string {
   const n = Number(v) || 0;
-  if (n === 0) return fmtNum(0, 2);
+  if (!isFinite(n) || n === 0) return fmtNum(0, 2);
+
   const abs = Math.abs(n);
-  if (abs >= 0.01) return fmtNum(n, 2);
-  // Posição do primeiro dígito significativo (ex.: 0,0005 → 4 casas)
-  const casas = Math.min(10, Math.ceil(-Math.log10(abs)));
-  return nf(casas, casas).format(n);
+
+  // 4) Resíduo minúsculo → expande até revelar o primeiro dígito não-nulo
+  if (abs < 0.001) {
+    const casas = Math.min(12, Math.ceil(-Math.log10(abs)));
+    return nf(casas, casas).format(n);
+  }
+
+  // 2) A parte decimal cabe em 2 casas sem perder informação → usa 2 casas
+  //    (evita "500,000" e mostra "500,00")
+  if (Math.abs(abs * 100 - Math.round(abs * 100)) < 1e-9) {
+    return fmtNum(n, 2);
+  }
+
+  // 3) Precisa de 3 casas para não esconder o resíduo
+  return fmtNum(n, CASAS_PADRAO);
 }
 
-/** Hashrate com precisão adaptativa → "0,0005 H/s" · "0,15 H/s" · "1.400,00 H/s" */
+/** Hashrate com precisão global de 3 casas → "0,001 H/s" · "0,100 H/s" · "1.400,000 H/s" */
 export function fmtHS(v: number): string {
   return `${fmtDinamico(v ?? 0)} H/s`;
 }

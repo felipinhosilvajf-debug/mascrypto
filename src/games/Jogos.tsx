@@ -3,12 +3,13 @@ import { Botao } from "../components/UI";
 import { fmtMAS, fmtNum as fmt } from "../lib/economia";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { ControleAposta, Painel, PainelAuto, Resultado, resultadoComRtp, useAposta, useAutoplay, useRtp } from "./Comum";
+import { ControleAposta, ControleMultiplicador, Painel, PainelAuto, Resultado, resultadoComRtp, useAposta, useAutoplay, useIcones, useMultiplicadores, useRtp } from "./Comum";
 
 /* ---------------- CARA OU COROA ---------------- */
 export function CaraCoroa() {
   const { registrarAposta, toast } = useApp();
   const rtp = useRtp("moeda");
+  const ic = useIcones("moeda", { cara: "👑", coroa: "🪙" });
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [lado, setLado] = useState<"cara" | "coroa">("cara");
   const [girando, setGirando] = useState(false);
@@ -34,6 +35,7 @@ export function CaraCoroa() {
     <Painel
       titulo="Cara ou Coroa"
       emoji="🪙"
+      jogoId="moeda"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={girando} />
@@ -46,7 +48,10 @@ export function CaraCoroa() {
                   lado === l ? "border-amber-400 bg-amber-400/20 text-amber-200" : "border-white/10 bg-white/5 text-slate-300"
                 }`}
               >
-                {l === "cara" ? "👑 Cara" : "🪙 Coroa"}
+                {(ic[l] || "").startsWith("http")
+                  ? <img src={ic[l]} alt="" className="mx-auto h-6 w-6 rounded object-cover" />
+                  : ic[l]}{" "}
+                {l === "cara" ? "Cara" : "Coroa"}
               </button>
             ))}
           </div>
@@ -65,8 +70,14 @@ export function CaraCoroa() {
               girando ? "animate-[girar_.35s_linear_infinite]" : ""
             }`}
           />
-          <div className="absolute inset-[8px] flex items-center justify-center rounded-full bg-slate-950 text-7xl">
-            {girando ? "🪙" : res === "cara" ? "👑" : res === "coroa" ? "🪙" : "❓"}
+          <div className="absolute inset-[8px] flex items-center justify-center overflow-hidden rounded-full bg-slate-950 text-7xl">
+            {girando
+              ? ic.coroa
+              : res === "cara"
+                ? (ic.cara?.startsWith("http") ? <img src={ic.cara} alt="" className="h-full w-full object-cover" /> : ic.cara)
+                : res === "coroa"
+                  ? (ic.coroa?.startsWith("http") ? <img src={ic.coroa} alt="" className="h-full w-full object-cover" /> : ic.coroa)
+                  : "❓"}
           </div>
         </div>
         <Resultado
@@ -124,6 +135,7 @@ export function Dados() {
     <Painel
       titulo="Dados"
       emoji="🎲"
+      jogoId="dados"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={rolando} />
@@ -224,6 +236,7 @@ export function Slots() {
     <Painel
       titulo="Caça-níqueis MAS"
       emoji="🎰"
+      jogoId="slots"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={girando} />
@@ -322,20 +335,16 @@ export function Crash() {
     <Painel
       titulo="Crash"
       emoji="🚀"
+      jogoId="crash"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={estado === "voando"} />
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-            <p className="text-xs text-slate-400">Auto saque em (x)</p>
-            <input
-              type="number"
-              step="0.1"
-              min={1.01}
-              value={auto}
-              onChange={(e) => setAuto(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/70 px-3 py-2 font-bold text-white outline-none"
-            />
-          </div>
+          <ControleMultiplicador
+            valor={auto}
+            setValor={setAuto}
+            travado={estado === "voando"}
+            label="Auto saque em"
+          />
           {estado === "voando" && !ref.current.sacou ? (
             <Botao variante="sucesso" className="w-full animate-pulse py-3" onClick={() => sacar(mult)}>
               SACAR {fmtMAS(aposta * mult)}
@@ -393,6 +402,7 @@ export function Crash() {
 export function Mines() {
   const { registrarAposta, toast } = useApp();
   const rtp = useRtp("mines");
+  const icM = useIcones("mines", { bomba: "💣", diamante: "💎" });
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [bombas, setBombas] = useState(3);
   const [grid, setGrid] = useState<number[]>([]);
@@ -444,6 +454,7 @@ export function Mines() {
     <Painel
       titulo="Mines"
       emoji="💣"
+      jogoId="mines"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={jogando} />
@@ -490,7 +501,7 @@ export function Mines() {
                     : "bg-[linear-gradient(180deg,#1c1a33,#12101f)] ring-1 ring-white/5 hover:-translate-y-0.5 hover:ring-fuchsia-400/40"
               }`}
             >
-              {revela ? "💣" : aberto ? "💎" : ""}
+              {revela ? icM.bomba : aberto ? icM.diamante : ""}
             </button>
           );
         })}
@@ -572,6 +583,7 @@ export function Roleta() {
     <Painel
       titulo="Roleta"
       emoji="🎡"
+      jogoId="roleta"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={girando} />
@@ -682,6 +694,7 @@ export function Torre() {
     <Painel
       titulo="Torre da Sorte"
       emoji="🗼"
+      jogoId="torre"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={jogando} />
@@ -785,6 +798,7 @@ export function Double() {
     <Painel
       titulo={conf.nome}
       emoji="◉"
+      jogoId="double"
       brilho="rgba(244,63,94,0.28)"
       lateral={
         <>
@@ -819,6 +833,8 @@ export function Double() {
 const MULT_PLINKO = [5, 2, 1.2, 0.5, 0.2, 0.5, 1.2, 2, 5];
 
 export function Plinko() {
+  const multTabela = useMultiplicadores("plinko", MULT_PLINKO);
+  const iconesPlinko = useIcones("plinko", { esfera: "◆" });
   const { registrarAposta, toast } = useApp();
   const { cfg } = useConfig();
   const conf = cfg.jogos.plinko;
@@ -849,7 +865,7 @@ export function Plinko() {
         clearInterval(iv);
         const b = caminho[caminho.length - 1];
         const fatorRtp = (conf.rtp || 0.95) / 0.95;
-        const mult = MULT_PLINKO[b] * fatorRtp;
+        const mult = (multTabela[b] ?? 0) * fatorRtp;
         const premio = aposta * mult;
         setBucket(b);
         setHistorico((h) => [mult, ...h].slice(0, 10));
@@ -864,6 +880,7 @@ export function Plinko() {
     <Painel
       titulo={conf.nome}
       emoji="◆"
+      jogoId="plinko"
       brilho="rgba(34,211,238,0.25)"
       lateral={
         <>
@@ -881,9 +898,16 @@ export function Plinko() {
               {Array.from({ length: row + 2 }, (_, p) => <span key={p} className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_10px_#22d3ee]" />)}
             </div>
           ))}
-          {caindo && passos.length > 0 && <span className="absolute h-4 w-4 rounded-full bg-fuchsia-300 shadow-[0_0_18px_#e879f9] transition-all duration-100" style={{ top: 12 + (passos.length - 1) * 28, left: `calc(${(passos[passos.length - 1] / 8) * 86 + 7}% - 8px)` }} />}
+          {caindo && passos.length > 0 && (
+            <span
+              className="absolute flex h-4 w-4 items-center justify-center rounded-full bg-fuchsia-300 text-[10px] shadow-[0_0_18px_#e879f9] transition-all duration-100"
+              style={{ top: 12 + (passos.length - 1) * 28, left: `calc(${(passos[passos.length - 1] / 8) * 86 + 7}% - 8px)` }}
+            >
+              {iconesPlinko.esfera !== "◆" ? iconesPlinko.esfera : ""}
+            </span>
+          )}
           <div className="absolute inset-x-3 bottom-3 grid grid-cols-9 gap-1">
-            {MULT_PLINKO.map((m, i) => <div key={i} className={`rounded-md py-2 text-center text-[9px] font-black ${bucket === i ? "animate-pulse bg-fuchsia-500 text-white" : m >= 1 ? "bg-emerald-500/25 text-emerald-300" : "bg-rose-500/25 text-rose-300"}`}>{fmt(m * ((conf.rtp || .95) / .95), 1)}x</div>)}
+            {multTabela.map((m, i) => <div key={i} className={`rounded-md py-2 text-center text-[9px] font-black ${bucket === i ? "animate-pulse bg-fuchsia-500 text-white" : m >= 1 ? "bg-emerald-500/25 text-emerald-300" : "bg-rose-500/25 text-rose-300"}`}>{fmt(m * ((conf.rtp || .95) / .95), 1)}x</div>)}
           </div>
         </div>
       </div>

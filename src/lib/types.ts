@@ -187,7 +187,9 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
 }
 
 export const CONQUISTAS = [
-  { id: "primeiro", nome: "Primeiros Passos", emoji: "👣", desc: "Crie sua conta", premio: 100 },
+  // Prêmio = 0: o bônus de boas-vindas já está incluído no saldoInicial
+  // configurado pelo Admin. Conceder novamente aqui geraria duplicidade.
+  { id: "primeiro", nome: "Primeiros Passos", emoji: "👣", desc: "Crie sua conta", premio: 0 },
   { id: "minerador", nome: "Minerador", emoji: "⛏️", desc: "Minere 1.000 MAS", premio: 250 },
   { id: "baleia", nome: "Baleia", emoji: "🐳", desc: "Tenha 100.000 MAS", premio: 5000 },
   { id: "sortudo", nome: "Sortudo", emoji: "🍀", desc: "Ganhe 10 apostas", premio: 500 },

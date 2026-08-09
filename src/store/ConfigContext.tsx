@@ -5,6 +5,7 @@ import {
   BANNERS_PADRAO,
   CONFIG_GRAFICO_PADRAO,
   CONFIG_PADRAO,
+  FONTES_DISPONIVEIS,
   ITENS_PADRAO,
   JOGOS_META,
   jogoPadrao,
@@ -99,6 +100,12 @@ function lerLocal(): ConfigGlobal {
 export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [cfg, setCfg] = useState<ConfigGlobal>(lerLocal);
   const [configOnline, setConfigOnline] = useState(false);
+
+  /* Tipografia global — aplicada em tempo real conforme o Admin configura. */
+  useEffect(() => {
+    const f = FONTES_DISPONIVEIS.find((x) => x.id === (cfg.visual?.fonte || "system"));
+    document.documentElement.style.fontFamily = f?.css || "";
+  }, [cfg.visual?.fonte]);
 
   // Firestore é a fonte oficial; localStorage é apenas cache/fallback offline.
   useEffect(() => {

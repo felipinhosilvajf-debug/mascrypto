@@ -9,12 +9,15 @@ import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import {
   ControleAposta,
+  ControleMultiplicador,
   PainelAuto,
   Painel,
   Resultado,
   resultadoComRtp,
   useAposta,
   useAutoplay,
+  useIcones,
+  useMultiplicadores,
 } from "./Comum";
 
 /** Validação comum de limites do Admin. */
@@ -34,6 +37,7 @@ const FATIAS = [0, 1.5, 2, 0, 3, 1.5, 5, 0, 2, 1.5, 10, 0, 2, 1.5, 3, 20];
 export function Wheel() {
   const { registrarAposta, toast, ehAdmin } = useApp();
   const { conf, valida: dentroLimite, textoLimites } = useLimites("wheel");
+  const FATIAS_CFG = useMultiplicadores("wheel", FATIAS);
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [girando, setGirando] = useState(false);
   const [angulo, setAngulo] = useState(0);
@@ -47,9 +51,9 @@ export function Wheel() {
     setRes(null);
 
     const fator = (conf.rtp || 0.96) / 0.96;
-    const idx = Math.floor(Math.random() * FATIAS.length);
-    const mult = FATIAS[idx] * fator;
-    const voltas = 5 * 360 + idx * (360 / FATIAS.length);
+    const idx = Math.floor(Math.random() * FATIAS_CFG.length);
+    const mult = FATIAS_CFG[idx] * fator;
+    const voltas = 5 * 360 + idx * (360 / FATIAS_CFG.length);
     setAngulo((a) => a + voltas);
 
     setTimeout(() => {
@@ -70,6 +74,7 @@ export function Wheel() {
     <Painel
       titulo={conf.nome}
       emoji="☸"
+      jogoId="wheel"
       brilho="rgba(251,191,36,0.28)"
       lateral={
         <>
@@ -103,11 +108,11 @@ export function Wheel() {
             className="absolute inset-0 rounded-full border-4 border-amber-400/50 shadow-[0_0_60px_-12px_rgba(251,191,36,.9)] transition-transform duration-[2500ms] ease-out"
             style={{
               transform: `rotate(${angulo}deg)`,
-              background: `conic-gradient(${FATIAS.map(
+              background: `conic-gradient(${FATIAS_CFG.map(
                 (m, i) =>
                   `${m === 0 ? "#4c1d24" : m >= 10 ? "#f59e0b" : m >= 2 ? "#10b981" : "#6366f1"} ${
-                    (i / FATIAS.length) * 100
-                  }% ${((i + 1) / FATIAS.length) * 100}%`,
+                    (i / FATIAS_CFG.length) * 100
+                  }% ${((i + 1) / FATIAS_CFG.length) * 100}%`,
               ).join(",")})`,
             }}
           />
@@ -177,6 +182,7 @@ export function HiLo() {
     <Painel
       titulo={conf.nome}
       emoji="🂡"
+      jogoId="hilo"
       brilho="rgba(99,102,241,0.25)"
       lateral={
         <>
@@ -274,30 +280,20 @@ export function Limbo() {
     <Painel
       titulo={conf.nome}
       emoji="⇡"
+      jogoId="limbo"
       brilho="rgba(16,185,129,0.25)"
       lateral={
         <>
           <ControleAposta aposta={aposta} setAposta={setAposta} saldo={saldo} travado={rodando || auto.ativo} />
-          <div className="rounded-2xl border border-white/10 bg-black/40 p-3">
-            <label className="text-[10px] font-bold uppercase text-slate-400">Multiplicador alvo</label>
-            <input
-              type="number"
-              min={1.01}
-              step={0.1}
-              value={alvo}
-              disabled={rodando || auto.ativo}
-              onChange={(e) => setAlvo(Math.max(1.01, Number(e.target.value)))}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-lg font-black text-white outline-none"
-            />
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-lg bg-white/5 p-2">
-                <p className="text-slate-500">Chance</p>
-                <p className="font-black text-emerald-300">{fmt(chance * 100, 2)}%</p>
-              </div>
-              <div className="rounded-lg bg-white/5 p-2">
-                <p className="text-slate-500">Prêmio</p>
-                <p className="font-black text-amber-300">{fmtMAS(aposta * alvo)}</p>
-              </div>
+          <ControleMultiplicador valor={alvo} setValor={setAlvo} travado={rodando || auto.ativo} />
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg bg-white/5 p-2">
+              <p className="text-slate-500">Chance</p>
+              <p className="font-black text-emerald-300">{fmt(chance * 100, 2)}%</p>
+            </div>
+            <div className="rounded-lg bg-white/5 p-2">
+              <p className="text-slate-500">Prêmio</p>
+              <p className="font-black text-amber-300">{fmtMAS(aposta * alvo)}</p>
             </div>
           </div>
           <p className="text-[11px] text-slate-500">
@@ -389,6 +385,7 @@ export function Keno() {
     <Painel
       titulo={conf.nome}
       emoji="⬢"
+      jogoId="keno"
       brilho="rgba(168,85,247,0.25)"
       lateral={
         <>
@@ -470,6 +467,7 @@ export function Keno() {
 export function HotZone() {
   const { registrarAposta, toast, ehAdmin } = useApp();
   const { conf, valida: dentroLimite, textoLimites } = useLimites("hotzone");
+  const icHZ = useIcones("hotzone", { perigo: "🔥", seguro: "❄️" });
   const { aposta, setAposta, saldo, valida } = useAposta();
   const [zonas, setZonas] = useState(3);
   const [perigo, setPerigo] = useState<number[]>([]);
@@ -538,6 +536,7 @@ export function HotZone() {
     <Painel
       titulo={conf.nome}
       emoji="⬤"
+      jogoId="hotzone"
       brilho="rgba(244,63,94,0.25)"
       lateral={
         <>
@@ -592,7 +591,7 @@ export function HotZone() {
                     : "bg-[linear-gradient(180deg,#1c1a33,#12101f)] ring-1 ring-white/5 hover:-translate-y-0.5 hover:ring-cyan-400/40"
               }`}
             >
-              {revela ? "🔥" : aberta ? "❄️" : ""}
+              {revela ? icHZ.perigo : aberta ? icHZ.seguro : ""}
             </button>
           );
         })}

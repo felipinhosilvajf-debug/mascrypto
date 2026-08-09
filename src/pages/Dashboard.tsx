@@ -292,10 +292,10 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
       {/* ---------- ESTATÍSTICAS DA PLATAFORMA ---------- */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {[
-          ["👥", "Usuários na rede", fmtNum(stats.usuarios, 0)],
-          ["🪙", "MAS em circulação", fmtCompacto(stats.mas)],
-          ["🎲", "Apostas realizadas", fmtCompacto(stats.apostas)],
-          ["⛏️", "Mineradores ativos", fmtNum(stats.mineradores, 0)],
+          [cfg.visual?.iconeUsuarios || "👥", cfg.visual?.rotuloUsuarios || "Usuários na rede", fmtNum(stats.usuarios, 0)],
+          [cfg.visual?.iconeCirculacao || "🪙", cfg.visual?.rotuloCirculacao || "MAS em circulação", fmtCompacto(stats.mas)],
+          [cfg.visual?.iconeApostas || "🎲", cfg.visual?.rotuloApostas || "Apostas realizadas", fmtCompacto(stats.apostas)],
+          [cfg.visual?.iconeMineradores || "⛏️", cfg.visual?.rotuloMineradores || "Mineradores ativos", fmtNum(stats.mineradores, 0)],
         ].map(([e, t, v]) => (
           <div
             key={t as string}

@@ -15,7 +15,16 @@ import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { fmtMAS } from "../lib/economia";
-import { Card } from "../components/UI";
+import { Card, Selo, Vazio } from "../components/UI";
+
+interface VencedorHist {
+  rodada: number;
+  bloco: number;
+  premio: number;
+  nome: string;
+  uid: string;
+  ts: number;
+}
 
 interface RodadaDoc {
   rodada: number;
@@ -50,7 +59,22 @@ export default function Bilheteria() {
   const [rodada, setRodada] = useState<RodadaDoc | null>(null);
   const [tempoRestante, setTempoRestante] = useState(0);
   const [comprando, setComprando] = useState<number | null>(null);
+  const [historico, setHistorico] = useState<VencedorHist[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /* ── Histórico público de vencedores ── */
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const { collection, onSnapshot: onSnap, query, orderBy, limit } = await import("firebase/firestore");
+      const q = query(collection(db, "bilheteria_historico"), orderBy("ts", "desc"), limit(10));
+      const unsub = onSnap(q, (snap) => {
+        if (vivo) setHistorico(snap.docs.map((d) => d.data() as VencedorHist));
+      }, () => {});
+      return unsub;
+    })();
+    return () => { vivo = false; };
+  }, []);
 
   /* ── Escuta a rodada em tempo real ── */
   useEffect(() => {
@@ -174,9 +198,12 @@ export default function Bilheteria() {
     : [];
 
   const blocoSorteado = rodada?.sorteado;
-  const totalSeg = Math.max(0, tempoRestante / 1000);
-  const mm = String(Math.floor(totalSeg / 60)).padStart(2, "0");
-  const ss = String(Math.floor(totalSeg % 60)).padStart(2, "0");
+  const totalSeg = Math.max(0, Math.floor(tempoRestante / 1000));
+  const dd = Math.floor(totalSeg / 86400);
+  const hh = Math.floor((totalSeg % 86400) / 3600);
+  const mm = Math.floor((totalSeg % 3600) / 60);
+  const ss = totalSeg % 60;
+  const p2 = (n: number) => String(n).padStart(2, "0");
 
   return (
     <div className="space-y-4">
@@ -200,21 +227,43 @@ export default function Bilheteria() {
           </div>
         </div>
 
-        {/* Timer */}
-        <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-black/40 p-3">
-          <div>
-            <p className="text-[10px] uppercase text-slate-400">Próximo sorteio em</p>
-            {rodada?.encerrada ? (
-              <p className="text-2xl font-black text-rose-400">Encerrado</p>
-            ) : rodada?.pausada ? (
-              <p className="text-2xl font-black text-amber-400">Pausado</p>
-            ) : (
-              <p className="font-mono text-3xl font-black text-white">{mm}:{ss}</p>
-            )}
-          </div>
-          <div className="text-right text-xs text-slate-500">
-            <p>Rodada #{rodada?.rodada ?? 1}</p>
-            <p>Blocos vendidos: {Object.keys(rodada?.bilhetes ?? {}).length}</p>
+        {/* Timer profissional sincronizado */}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-300/80">
+                ⏱ Próximo sorteio em
+              </p>
+              {rodada?.encerrada ? (
+                <p className="mt-1 text-2xl font-black text-rose-400">Rodada encerrada</p>
+              ) : rodada?.pausada ? (
+                <p className="mt-1 text-2xl font-black text-amber-400">⏸ Pausado pelo Admin</p>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  {([
+                    ["Dias", dd],
+                    ["Horas", hh],
+                    ["Min", mm],
+                    ["Seg", ss],
+                  ] as [string, number][]).map(([rot, val]) => (
+                    <div
+                      key={rot}
+                      className="min-w-[58px] rounded-xl border border-amber-400/30 bg-amber-400/10 px-2 py-1.5 text-center"
+                    >
+                      <p className="font-mono text-2xl font-black leading-none text-white">{p2(val)}</p>
+                      <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300/70">{rot}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <Selo tom="ouro">Rodada #{rodada?.rodada ?? 1}</Selo>
+              <p className="mt-1.5 text-xs text-slate-400">
+                {Object.keys(rodada?.bilhetes ?? {}).length}/50 blocos vendidos
+              </p>
+              <p className="text-[10px] text-slate-500">Sincronizado com o servidor</p>
+            </div>
           </div>
         </div>
 
@@ -279,6 +328,56 @@ export default function Bilheteria() {
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded border border-white/5 bg-white/5" /> Indisponível (comprado por outro)</span>
           <span className="flex items-center gap-1"><span className="h-3 w-3 rounded border border-white/10 bg-white/[0.04]" /> Livre para compra</span>
         </div>
+      </Card>
+
+      {/* ── Painel público de resultados ── */}
+      <Card className="border-amber-400/25">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 font-black text-white">
+            🏆 Mural de Vencedores
+          </h3>
+          <Selo tom="ouro">Últimos {historico.length} sorteios</Selo>
+        </div>
+
+        {historico.length === 0 ? (
+          <Vazio emoji="🎟️" titulo="Nenhum sorteio concluído" texto="O primeiro vencedor aparecerá aqui." />
+        ) : (
+          <div className="space-y-2">
+            {historico.map((h, idx) => {
+              const souEu = h.uid === data?.uid;
+              return (
+                <div
+                  key={`${h.rodada}-${h.ts}`}
+                  className={`flex flex-wrap items-center gap-3 rounded-2xl border p-3 ${
+                    idx === 0
+                      ? "border-amber-400/50 bg-amber-400/10 shadow-[0_0_22px_-10px_rgba(251,191,36,.9)]"
+                      : "border-white/10 bg-white/[0.03]"
+                  }`}
+                >
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-black ${
+                    idx === 0 ? "bg-amber-400 text-slate-950" : "bg-white/10 text-slate-300"
+                  }`}>
+                    {idx === 0 ? "👑" : `#${h.rodada}`}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-black text-white">
+                      {souEu ? "VOCÊ 🎉" : h.nome}
+                      {idx === 0 && <span className="ml-2 text-[10px] font-black uppercase text-amber-300">Mais recente</span>}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Rodada #{h.rodada} · Bloco sorteado <b className="text-amber-300">{h.bloco}</b> ·{" "}
+                      {new Date(h.ts).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Pote</p>
+                    <p className="font-black text-emerald-300">{fmtMAS(h.premio)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Card>
     </div>
   );

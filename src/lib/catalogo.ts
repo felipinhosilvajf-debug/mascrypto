@@ -190,7 +190,42 @@ export interface JogoConfig {
   /** URL de GIF/animacao de destaque. */
   gif: string;
   ativo: boolean;
+  /**
+   * Tabela de multiplicadores editável (Plinko, Roda, Torre…).
+   * Cada posição representa uma casa/pino/nível do jogo.
+   */
+  multiplicadores?: number[];
+  /**
+   * Ícones/símbolos internos do jogo (emoji ou URL de imagem).
+   * Chaves livres por jogo — ex.: `cara`, `coroa`, `bomba`, `diamante`, `esfera`.
+   */
+  icones?: Record<string, string>;
+  /** Paleta visual individual do jogo. */
+  cores?: {
+    primaria?: string;
+    secundaria?: string;
+    fundo?: string;
+    brilho?: boolean;
+  };
 }
+
+/** Tabelas de multiplicadores padrão por jogo (editáveis no Admin). */
+export const MULTIPLICADORES_PADRAO: Record<string, number[]> = {
+  plinko: [5, 2, 1.2, 0.5, 0.2, 0.5, 1.2, 2, 5],
+  wheel:  [0, 1.5, 2, 0, 3, 1.5, 5, 0, 2, 1.5, 10, 0, 2, 1.5, 3, 20],
+  slots:  [4, 5, 6, 10, 25, 50, 15],
+};
+
+/** Ícones padrão por jogo (editáveis no Admin). */
+export const ICONES_PADRAO: Record<string, Record<string, string>> = {
+  moeda:  { cara: "👑", coroa: "🪙" },
+  mines:  { bomba: "💣", diamante: "💎" },
+  plinko: { esfera: "◆" },
+  slots:  { s1: "🍒", s2: "🍋", s3: "🍊", s4: "🔔", s5: "💎", s6: "7️⃣", s7: "🪙" },
+  hotzone:{ perigo: "🔥", seguro: "❄️" },
+  crash:  { foguete: "🚀", explosao: "💥" },
+  torre:  { armadilha: "💀", seguro: "✓" },
+};
 
 /** Atalhos padrão usados quando o jogo não define os seus. */
 export const ATALHOS_APOSTA_PADRAO: JogoConfig["atalhos"] = [
@@ -235,6 +270,9 @@ export function jogoPadrao(id: string): JogoConfig {
     capa: "",
     gif: "",
     ativo: true,
+    multiplicadores: MULTIPLICADORES_PADRAO[id] ? [...MULTIPLICADORES_PADRAO[id]] : undefined,
+    icones: ICONES_PADRAO[id] ? { ...ICONES_PADRAO[id] } : undefined,
+    cores: { primaria: "", secundaria: "", fundo: "", brilho: true },
   };
 }
 
@@ -364,7 +402,27 @@ export interface ConfigVisual {
   sloganPhrase: string;
   particulasAtivas: boolean;
   neonGlowAtivo: boolean;
+  /** Família tipográfica global da plataforma. */
+  fonte?: string;
+  /** Rótulos e ícones globais editáveis pelo Admin. */
+  rotuloUsuarios?: string;
+  rotuloCirculacao?: string;
+  rotuloApostas?: string;
+  rotuloMineradores?: string;
+  iconeUsuarios?: string;
+  iconeCirculacao?: string;
+  iconeApostas?: string;
+  iconeMineradores?: string;
 }
+
+/** Fontes disponíveis para a plataforma. */
+export const FONTES_DISPONIVEIS = [
+  { id: "system", nome: "Padrão do sistema", css: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
+  { id: "inter",  nome: "Inter / Moderna",   css: "Inter, system-ui, sans-serif" },
+  { id: "mono",   nome: "Monoespaçada Tech", css: "'JetBrains Mono', ui-monospace, monospace" },
+  { id: "serif",  nome: "Serifada Premium",  css: "Georgia, 'Times New Roman', serif" },
+  { id: "round",  nome: "Arredondada",       css: "'Nunito', 'Segoe UI', sans-serif" },
+];
 
 /** Feature exibida na landing (ícone + título + descrição). */
 export interface LandingFeature {
@@ -553,6 +611,15 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     sloganPhrase: "MINE. CONVERTA. EVOLUA.",
     particulasAtivas: true,
     neonGlowAtivo: true,
+    fonte: "system",
+    rotuloUsuarios: "Usuários na rede",
+    rotuloCirculacao: "MAS em circulação",
+    rotuloApostas: "Apostas realizadas",
+    rotuloMineradores: "Mineradores ativos",
+    iconeUsuarios: "👥",
+    iconeCirculacao: "🪙",
+    iconeApostas: "🎲",
+    iconeMineradores: "⛏️",
   },
   landing: {
     marca: "MAScrypto",

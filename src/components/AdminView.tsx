@@ -5,6 +5,7 @@ import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import {
   CATEGORIAS,
+  FONTES_DISPONIVEIS,
   GRUPOS_ADMIN,
   JOGOS_META,
   RARIDADES,
@@ -1010,6 +1011,117 @@ function EditorJogo({
           </Campo>
         </div>
 
+        {/* ── Tabela de multiplicadores editável ── */}
+        {x.multiplicadores && x.multiplicadores.length > 0 && (
+          <div className="rounded-2xl border border-amber-400/25 bg-amber-400/[0.05] p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-black uppercase tracking-wider text-amber-300/90">
+                Tabela de multiplicadores ({x.multiplicadores.length} casas)
+              </p>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => set("multiplicadores", [...(x.multiplicadores || []), 1])}
+                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-bold text-white hover:bg-white/10"
+                >+ Casa</button>
+                <button
+                  onClick={() => set("multiplicadores", (x.multiplicadores || []).slice(0, -1))}
+                  className="rounded-lg bg-rose-500/15 px-2 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/25"
+                >− Casa</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+              {x.multiplicadores.map((m, idx) => (
+                <div key={idx} className="rounded-lg border border-white/10 bg-slate-950/60 p-1.5">
+                  <p className="mb-0.5 text-center text-[8px] font-bold uppercase text-slate-500">#{idx + 1}</p>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={m}
+                    onChange={(e) => {
+                      const arr = [...(x.multiplicadores || [])];
+                      arr[idx] = Math.max(0, Number(e.target.value) || 0);
+                      set("multiplicadores", arr);
+                    }}
+                    className="w-full rounded bg-transparent text-center text-xs font-black text-amber-300 outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">
+              Estes valores alimentam diretamente o cálculo de prêmio do jogo (ajustado pelo RTP).
+            </p>
+          </div>
+        )}
+
+        {/* ── Ícones e símbolos internos do jogo ── */}
+        {x.icones && Object.keys(x.icones).length > 0 && (
+          <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.05] p-3">
+            <p className="mb-2 text-xs font-black uppercase tracking-wider text-cyan-300/90">
+              Ícones e símbolos do jogo
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {Object.entries(x.icones).map(([chave, valor]) => (
+                <div key={chave} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/40 text-xl">
+                    {valor.startsWith("http")
+                      ? <img src={valor} alt="" className="h-full w-full object-cover" />
+                      : valor}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] font-bold uppercase text-slate-500">{chave}</p>
+                    <input
+                      value={valor}
+                      onChange={(e) => set("icones", { ...(x.icones || {}), [chave]: e.target.value })}
+                      placeholder="Emoji ou URL"
+                      className="w-full rounded bg-transparent text-xs font-bold text-white outline-none"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">Aceita emoji ou URL de imagem (PNG/GIF/WebP).</p>
+          </div>
+        )}
+
+        {/* ── Paleta de cores do jogo ── */}
+        <div className="rounded-2xl border border-violet-500/25 bg-violet-500/[0.05] p-3">
+          <p className="mb-2 text-xs font-black uppercase tracking-wider text-violet-300/90">
+            Estilização visual do jogo
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {([
+              ["primaria", "Cor primária"],
+              ["secundaria", "Cor secundária"],
+              ["fundo", "Cor de fundo"],
+            ] as const).map(([k, label]) => (
+              <Campo key={k} label={label}>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={(x.cores?.[k] as string) || "#a855f7"}
+                    onChange={(e) => set("cores", { ...(x.cores || {}), [k]: e.target.value })}
+                    className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
+                  />
+                  <input
+                    value={(x.cores?.[k] as string) || ""}
+                    onChange={(e) => set("cores", { ...(x.cores || {}), [k]: e.target.value })}
+                    placeholder="auto"
+                    className="w-full rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-xs text-white outline-none"
+                  />
+                </div>
+              </Campo>
+            ))}
+          </div>
+          <div className="mt-2">
+            <Switch
+              ligado={x.cores?.brilho !== false}
+              onChange={(v) => set("cores", { ...(x.cores || {}), brilho: v })}
+              rotulo={x.cores?.brilho !== false ? "Efeito glow ativo" : "Glow desativado"}
+            />
+          </div>
+        </div>
+
         {/* Atalhos configuráveis */}
         <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/[0.05] p-3">
           <div className="mb-2 flex items-center justify-between">
@@ -1852,7 +1964,54 @@ function ConfigAdmin() {
               rotulo={cfg.visual.neonGlowAtivo ? "Efeito Neon Glow ativo" : "Neon desativado"}
             />
           </div>
+
+          {/* Tipografia global */}
+          <Campo label="Tipografia global da plataforma" dica="Aplicada instantaneamente em todo o site">
+            <select
+              value={cfg.visual.fonte || "system"}
+              onChange={(e) => salvarConfig({ visual: { ...cfg.visual, fonte: e.target.value } })}
+              className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none"
+            >
+              {FONTES_DISPONIVEIS.map((f) => (
+                <option key={f.id} value={f.id}>{f.nome}</option>
+              ))}
+            </select>
+          </Campo>
         </div>
+      </Card>
+
+      {/* 📊 MÉTRICAS DA HOME — rótulos e ícones editáveis */}
+      <Card className="border-cyan-500/25">
+        <h3 className="font-black text-white">📊 Rótulos e Ícones das Métricas</h3>
+        <p className="text-sm text-slate-400">
+          Personalize o texto e o ícone de cada métrica exibida na página inicial.
+        </p>
+        <div className="mt-4 space-y-2">
+          {([
+            ["iconeUsuarios",    "rotuloUsuarios",    "Usuários na rede"],
+            ["iconeCirculacao",  "rotuloCirculacao",  "MAS em circulação"],
+            ["iconeApostas",     "rotuloApostas",     "Apostas realizadas"],
+            ["iconeMineradores", "rotuloMineradores", "Mineradores ativos"],
+          ] as const).map(([kIcone, kRotulo, padrao]) => (
+            <div key={kRotulo} className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+              <input
+                value={(cfg.visual as unknown as Record<string, string>)[kIcone] || ""}
+                onChange={(e) => salvarConfig({ visual: { ...cfg.visual, [kIcone]: e.target.value } })}
+                className="w-16 rounded-lg border border-white/10 bg-slate-950/70 px-2 py-2 text-center text-lg outline-none"
+                placeholder="🎯"
+              />
+              <input
+                value={(cfg.visual as unknown as Record<string, string>)[kRotulo] || ""}
+                onChange={(e) => salvarConfig({ visual: { ...cfg.visual, [kRotulo]: e.target.value } })}
+                className="min-w-[180px] flex-1 rounded-lg border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none"
+                placeholder={padrao}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          Os <b>valores numéricos</b> dessas métricas são controlados na seção “Ajustes e Métricas da Home (Overrides)”.
+        </p>
       </Card>
 
       <Card>

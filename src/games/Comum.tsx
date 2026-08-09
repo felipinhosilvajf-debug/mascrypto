@@ -21,6 +21,37 @@ export function useRtp(id: string): number {
 }
 
 /**
+ * Lê a tabela de multiplicadores configurada pelo Admin para um jogo.
+ * Se não houver config, usa o fallback informado pelo próprio jogo.
+ */
+export function useMultiplicadores(id: string, fallback: number[]): number[] {
+  const { cfg } = useConfig();
+  const tab = cfg.jogos[id]?.multiplicadores;
+  return tab && tab.length ? tab : fallback;
+}
+
+/**
+ * Lê os ícones/símbolos configurados pelo Admin para um jogo.
+ * Faz merge com os padrões do próprio jogo.
+ */
+export function useIcones(id: string, padrao: Record<string, string>): Record<string, string> {
+  const { cfg } = useConfig();
+  return { ...padrao, ...(cfg.jogos[id]?.icones || {}) };
+}
+
+/** Lê a paleta de cores individual do jogo (com fallback). */
+export function useCoresJogo(id: string, padrao: { primaria: string; secundaria: string }) {
+  const { cfg } = useConfig();
+  const c = cfg.jogos[id]?.cores || {};
+  return {
+    primaria: c.primaria || padrao.primaria,
+    secundaria: c.secundaria || padrao.secundaria,
+    fundo: c.fundo || "",
+    brilho: c.brilho !== false,
+  };
+}
+
+/**
  * Estado de aposta compartilhado por todos os jogos.
  * Se `jogoId` for passado, lê o valor padrão configurado pelo Admin
  * (config/global.jogos[id].apostaPadrao). Caso contrário usa `inicial`.
@@ -103,6 +134,89 @@ export function ControleAposta({
   );
 }
 
+/**
+ * Painel de multiplicadores customizados.
+ * Usado em jogos com alvo/auto-saque (Crash, Limbo, Dados...).
+ * Permite escolher presets rápidos ou digitar um valor manual.
+ */
+export const MULTIPLICADORES_PRESET = [1.05, 1.42, 2.11, 3.20, 5.00, 8.40];
+
+export function ControleMultiplicador({
+  valor,
+  setValor,
+  travado,
+  label = "Multiplicador alvo",
+  min = 1.01,
+  presets = MULTIPLICADORES_PRESET,
+}: {
+  valor: number;
+  setValor: (n: number) => void;
+  travado?: boolean;
+  label?: string;
+  min?: number;
+  presets?: number[];
+}) {
+  return (
+    <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.05] p-3">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-bold uppercase tracking-wider text-cyan-300">{label}</span>
+        <span className="font-black text-white">{fmtNum(valor, 2)}×</span>
+      </div>
+
+      {/* Entrada manual */}
+      <div className="relative mt-2">
+        <input
+          type="number"
+          step="0.01"
+          min={min}
+          disabled={travado}
+          value={valor}
+          onChange={(e) => setValor(Math.max(min, Number(e.target.value) || min))}
+          className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2.5 pr-10 text-lg font-black text-white outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-cyan-400">×</span>
+      </div>
+
+      {/* Presets rápidos */}
+      <div className="mt-2 grid grid-cols-3 gap-1">
+        {presets.map((m) => (
+          <button
+            key={m}
+            disabled={travado}
+            onClick={() => setValor(m)}
+            className={`rounded-lg border py-1.5 text-[11px] font-black transition disabled:opacity-40 ${
+              Math.abs(valor - m) < 0.001
+                ? "border-cyan-400 bg-cyan-500/25 text-white"
+                : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-400/40 hover:bg-cyan-500/15 hover:text-white"
+            }`}
+          >
+            {m.toFixed(2)}×
+          </button>
+        ))}
+      </div>
+
+      {/* Ajuste fino */}
+      <div className="mt-1.5 grid grid-cols-4 gap-1">
+        {([
+          ["−0,10", () => setValor(Math.max(min, +(valor - 0.1).toFixed(2)))],
+          ["−0,01", () => setValor(Math.max(min, +(valor - 0.01).toFixed(2)))],
+          ["+0,01", () => setValor(+(valor + 0.01).toFixed(2))],
+          ["+0,10", () => setValor(+(valor + 0.1).toFixed(2))],
+        ] as [string, () => void][]).map(([l, f]) => (
+          <button
+            key={l}
+            disabled={travado}
+            onClick={f}
+            className="rounded-lg border border-white/10 bg-white/[0.04] py-1 text-[10px] font-bold text-slate-400 transition hover:text-white disabled:opacity-40"
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Moldura futurista comum a todos os jogos. */
 export function Painel({
   titulo,
@@ -110,13 +224,32 @@ export function Painel({
   children,
   lateral,
   brilho = "rgba(217,70,239,0.35)",
+  jogoId,
 }: {
   titulo: string;
   emoji: string;
   children: React.ReactNode;
   lateral: React.ReactNode;
   brilho?: string;
+  /** ID do jogo — carrega paleta de cores definida pelo Admin. */
+  jogoId?: string;
 }) {
+  const { cfg } = useConfig();
+  const cores = jogoId ? cfg.jogos[jogoId]?.cores : undefined;
+
+  // Converte hex → rgba com alfa para o brilho radial
+  const hexRgba = (hex: string, a: number) => {
+    const h = hex.replace("#", "");
+    if (h.length !== 6) return "";
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+
+  const glowAtivo = cores?.brilho !== false;
+  const brilhoFinal = cores?.primaria ? hexRgba(cores.primaria, 0.35) || brilho : brilho;
+  const fundoFinal = cores?.fundo || "#05040c";
+  const linhaTopo = cores?.secundaria || "rgba(232,121,249,0.7)";
+
   return (
     <div className="grid gap-4 lg:grid-cols-[330px_1fr]">
       <div className="space-y-3 rounded-3xl border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-4 backdrop-blur-2xl">
@@ -129,11 +262,16 @@ export function Painel({
       <div
         className="relative flex min-h-[400px] items-center justify-center overflow-hidden rounded-3xl border border-white/10 p-6"
         style={{
-          background: `radial-gradient(120% 120% at 50% 0%, ${brilho}, rgba(2,2,10,0.9) 60%), #05040c`,
+          background: glowAtivo
+            ? `radial-gradient(120% 120% at 50% 0%, ${brilhoFinal}, rgba(2,2,10,0.9) 60%), ${fundoFinal}`
+            : fundoFinal,
         }}
       >
         <div className="pointer-events-none absolute inset-0 opacity-[0.12] [background-image:linear-gradient(rgba(255,255,255,.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.7)_1px,transparent_1px)] [background-size:38px_38px]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-fuchsia-400/70 to-transparent" />
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{ background: `linear-gradient(90deg, transparent, ${linhaTopo}, transparent)` }}
+        />
         <div className="relative w-full">{children}</div>
       </div>
     </div>

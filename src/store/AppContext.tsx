@@ -36,7 +36,7 @@ import {
   type Transacao,
   type UserData,
 } from "../lib/types";
-import { nivelPorXp } from "../lib/economia";
+import { fmtDinamico, nivelPorXp } from "../lib/economia";
 import { infoCategoria, type ConfigGlobal, type ItemLoja } from "../lib/catalogo";
 import { COLECAO_PAGAMENTOS, type PagamentoManual } from "../lib/pagamentos";
 import { useConfig } from "./ConfigContext";
@@ -249,6 +249,9 @@ export async function createUserDocument(uid: string, nome: string, email: strin
 
   const novo = novoUsuario(uid, nome, email, saldoInicial);
   novo.admin = ADMIN_EMAILS.includes(email.toLowerCase());
+  // "Primeiros Passos" registrado no cadastro — sem prêmio em MAS pois o
+  // saldoInicial já é o bônus configurado pelo Admin.
+  novo.conquistas = ["primeiro"];
   await setDoc(ref, novo);
   return novo;
 }
@@ -619,7 +622,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ].slice(0, 60),
     }));
     setPendenteMineracao(0);
-    toast(`+${v.toFixed(4)} MAS coletados ⛏️`, "ok");
+    toast(`+${fmtDinamico(v)} MAS coletados ⛏️`, "ok");
   }, [atualizar, pendenteMineracao, cfg.xpPorMAS, toast]);
 
   const ativarBoost = useCallback(() => {
@@ -1070,7 +1073,9 @@ function checarConquistas(d: UserData): UserData {
     }
   };
   const roupas = ["camisa", "calca", "sapato", "chapeu", "oculos"].filter((s) => d.equipados?.[s]).length;
-  check("primeiro", true);
+  // "primeiro" é concedido apenas no momento da criação da conta
+  // (já incluído em novoUsuario/createUserDocument). Não deve ser
+  // reavaliado aqui para evitar creditar +100 MAS em toda nova sessão.
   check("minerador", d.totalMinerado >= 1000);
   check("baleia", d.saldo >= 100000);
   check("sortudo", d.vitorias >= 10);

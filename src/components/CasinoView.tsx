@@ -138,11 +138,22 @@ export default function CasinoView() {
         </div>
       </Card>
 
+      {/* ── MODO FOCUS: quando um jogo está aberto, o grid some ── */}
+      {ativo && (
+        <button
+          onClick={() => setAtivo(null)}
+          className="sticky top-20 z-30 flex w-full items-center gap-2 rounded-2xl border border-fuchsia-400/40 bg-fuchsia-600/20 px-4 py-3 text-sm font-black text-white backdrop-blur-xl transition hover:bg-fuchsia-600/35 active:scale-[0.99]"
+        >
+          <span className="text-lg">←</span>
+          Voltar ao Cassino / Menu de Jogos
+        </button>
+      )}
+
       {disponiveis.length === 0 ? (
         <Card>
           <Vazio emoji="🚧" titulo="Nenhum jogo disponível" texto="Todos os jogos foram desativados pela administração." />
         </Card>
-      ) : (
+      ) : ativo ? null : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           {/* ── Atalho DESTACADO da Bilheteria ── */}
           {cfg.bilheteria.ativa && (

@@ -197,8 +197,22 @@ export function BilheteriaAdmin() {
           sorteado: bloco,
           vencedor: { uid: uidVencedor, nome, premio },
         });
-        return { semBilhetes: false, bloco, premio, nome };
+        return { semBilhetes: false, bloco, premio, nome, rodada: r.rodada, uid: uidVencedor };
       });
+
+      // Registra no histórico público de sorteios
+      if (!resultado.semBilhetes) {
+        const { addDoc, collection } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        await addDoc(collection(db, "bilheteria_historico"), {
+          rodada: resultado.rodada,
+          bloco: resultado.bloco,
+          premio: resultado.premio,
+          nome: resultado.nome,
+          uid: resultado.uid,
+          ts: Date.now(),
+        }).catch(() => {});
+      }
 
       if (resultado.semBilhetes) {
         toast("Rodada encerrada — nenhum bilhete vendido", "info");
