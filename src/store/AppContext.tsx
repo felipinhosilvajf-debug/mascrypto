@@ -166,6 +166,18 @@ export function calcularHash(d: UserData | null, cfg: ConfigGlobal, tick = 0) {
   const aplicarOsc = (it: { id: string; hs: number; hsOscilacao?: number; hsIntervaloS?: number }) =>
     (it.hs || 0) * oscilacaoItem(it.id, tick, it.hsOscilacao || 0, it.hsIntervaloS || 4);
 
+  // Bônus e H/s de Avatares premium configurados
+  if (d.avatarImg || d.avatar) {
+    // Busca se existe um item da categoria avatar que corresponde ao selecionado
+    const avatarItem = cfg.itens.find(
+      (i) => i.categoria === "avatar" && i.ativo && (d.avatarImg === i.imagem || (!i.imagem && d.avatar === i.emoji))
+    );
+    if (avatarItem && d.itens.includes(avatarItem.id)) {
+      itens += aplicarOsc(avatarItem);
+      bonusPct += avatarItem.bonusPct || 0;
+    }
+  }
+
   // Equipamentos vestidos (slots RPG — roupas/pets/acessórios)
   for (const slot of Object.keys(d.equipados || {})) {
     const it = cfg.itens.find((i) => i.id === d.equipados[slot]);

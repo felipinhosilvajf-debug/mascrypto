@@ -7,7 +7,9 @@ import {
   CATEGORIAS,
   GRUPOS_ADMIN,
   JOGOS_META,
+  RARIDADES,
   infoCategoria,
+  infoRaridade,
   type Banner,
   type Categoria,
   type ItemLoja,
@@ -23,6 +25,7 @@ import {
 } from "../lib/pagamentos";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, xpParaNivel } from "../lib/economia";
 import { RecompensaAdmin, BilheteriaAdmin } from "./AdminExtras";
+import AvatarAdmin from "./AvatarAdmin";
 import {
   Abas,
   ArteItem,
@@ -45,6 +48,7 @@ type AbaAdmin =
   | "operacional"
   | "contas"
   | "loja"
+  | "avatares"
   | "jogos"
   | "banners"
   | "tickets"
@@ -59,6 +63,7 @@ const ABAS = [
   { id: "operacional" as const, nome: "Operacional", emoji: "🎫" },
   { id: "contas" as const, nome: "Contas", emoji: "👥" },
   { id: "loja" as const, nome: "Itens da Loja", emoji: "🛒" },
+  { id: "avatares" as const, nome: "Avatares", emoji: "👤" },
   { id: "jogos" as const, nome: "Gerenciar Jogos", emoji: "🎰" },
   { id: "banners" as const, nome: "Banners & Avisos", emoji: "📣" },
   { id: "tickets" as const, nome: "Tickets / Suporte", emoji: "🎧" },
@@ -95,6 +100,7 @@ export default function AdminView() {
       {aba === "operacional" && <Operacional />}
       {aba === "contas" && <Contas />}
       {aba === "loja" && <LojaAdmin />}
+      {aba === "avatares" && <AvatarAdmin />}
       {aba === "jogos" && <JogosAdmin />}
       {aba === "banners" && <BannersAdmin />}
       {aba === "tickets" && <TicketsAdmin />}
@@ -566,6 +572,7 @@ function itemVazio(): ItemLoja {
     emoji: "👕",
     imagem: "",
     preco: 500,
+    raridade: "comum",
     nivelMin: 1,
     hs: 0,
     bonusPct: 0,
@@ -633,6 +640,12 @@ function LojaAdmin() {
                   <p className="truncate font-bold text-white">{i.nome || "(sem nome)"}</p>
                   <p className="text-[11px] text-slate-400">{infoCategoria(i.categoria).nome}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
+                    <span
+                      className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider"
+                      style={{ borderColor: `${infoRaridade(i.raridade).cor}66`, background: `${infoRaridade(i.raridade).cor}1a`, color: infoRaridade(i.raridade).cor }}
+                    >
+                      {infoRaridade(i.raridade).nome}
+                    </span>
                     <Selo tom="ouro">{fmtMAS(i.preco)}</Selo>
                     <Selo tom="cinza">Nv {i.nivelMin}</Selo>
                     {i.hs > 0 && <Selo tom="ciano">{fmtHS(i.hs)}</Selo>}
@@ -730,6 +743,29 @@ function EditorItem({
                 </option>
               ))}
             </select>
+          </Campo>
+          <Campo label="Raridade">
+            <div className="flex flex-wrap gap-1.5">
+              {RARIDADES.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => set("raridade", r.id)}
+                  className={`rounded-lg border px-2.5 py-2 text-xs font-black transition ${
+                    (i.raridade || "comum") === r.id
+                      ? "text-white ring-2 ring-white/40" + ` ${r.brilho}`
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  style={{
+                    borderColor: r.cor,
+                    color: (i.raridade || "comum") === r.id ? "#fff" : r.cor,
+                    background: (i.raridade || "comum") === r.id ? `${r.cor}33` : "transparent",
+                  }}
+                >
+                  {r.nome}
+                </button>
+              ))}
+            </div>
           </Campo>
           <Campo label="Emoji (fallback)">
             <Input value={i.emoji} onChange={(e) => set("emoji", e.target.value)} placeholder="👕" />

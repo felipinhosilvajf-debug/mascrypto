@@ -95,6 +95,11 @@ export default function MiningView() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pendente para coleta</p>
                   <p className="text-4xl font-black text-emerald-400">{fmtDinamico(pendente)} MAS</p>
+                  {minerandoAtivo && hashrate > 0 && (
+                    <p className="mt-1 text-[11px] text-emerald-300/70">
+                      +{fmtHS(hashrate)} por segundo
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Status do Ciclo</span>
@@ -121,7 +126,7 @@ export default function MiningView() {
                 <span>
                   Hashrate: <b className="text-cyan-300">{fmtHS(hashrate)}</b>
                 </span>
-                <span>{fmtMAS(hashrate * 3600)}/hora</span>
+                <span>{fmtHS(hashrate * 3600)}/hora · {fmtHS(hashrate * 3600 * 24)}/dia</span>
               </div>
               <div className="mt-2">
                 <Barra
@@ -144,7 +149,7 @@ export default function MiningView() {
                   {minerandoManual ? "⏸ Pausar Mineração" : "▶ Iniciar Mineração"}
                 </Botao>
                 <Botao variante="sucesso" onClick={coletar} disabled={pendente <= 0.0001}>
-                  Coletar {fmtMAS(pendente)}
+                  Coletar {fmtDinamico(pendente)} MAS
                 </Botao>
                 {mc.boostAtivo && (
                   <button

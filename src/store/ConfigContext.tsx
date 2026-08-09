@@ -55,6 +55,9 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     requisitosNivel: { ...CONFIG_PADRAO.requisitosNivel, ...(bruto?.requisitosNivel || {}) },
     custoSlotHardware: bruto?.custoSlotHardware ?? CONFIG_PADRAO.custoSlotHardware,
     limiteSlotHardwareGlobal: bruto?.limiteSlotHardwareGlobal ?? CONFIG_PADRAO.limiteSlotHardwareGlobal,
+    avataresPadrao: Array.isArray(bruto?.avataresPadrao) && bruto!.avataresPadrao.length
+      ? bruto!.avataresPadrao
+      : CONFIG_PADRAO.avataresPadrao,
   };
   // Garante limites saudáveis (evita loops travados por config inválida)
   if (c.grafico.intervaloMs < 500) c.grafico.intervaloMs = 500;

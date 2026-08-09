@@ -14,7 +14,7 @@ import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc, query, limit, o
 import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { AVATARES, SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../lib/types";
+import { SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
 import { ArteItem, AvatarVisual, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
 import { cn } from "../utils/cn";
@@ -727,51 +727,54 @@ export default function VirtualRoomView({
       <Modal aberto={editar} onFechar={() => setEditar(false)} titulo="Personalizar perfil">
         <div className="space-y-4">
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Avatar</p>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Avatar Gratuito <span className="text-slate-500 font-normal">— galeria da rede</span>
+            </p>
             <div className="grid grid-cols-8 gap-1.5">
-              {AVATARES.map((a) => (
-                <button key={a} onClick={() => atualizar((d) => ({ ...d, avatar: a }))}
-                  className={cn("flex h-10 items-center justify-center rounded-xl border text-xl",
-                    data.avatar === a ? "border-fuchsia-400 bg-fuchsia-500/25" : "border-white/10 bg-white/5")}>
-                  {a}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Imagem customizada</p>
-              <Input
-                placeholder="Cole uma URL de imagem/ícone (PNG, JPG, GIF, WebP)"
-                value={data.avatarImg || ""}
-                onChange={(e) => atualizar((d) => ({ ...d, avatarImg: e.target.value }))}
-              />
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/10">
-                  Upload local
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      if (file.size > 1024 * 1024) return toast("Use uma imagem de até 1MB", "erro");
-                      const reader = new FileReader();
-                      reader.onload = () => atualizar((d) => ({ ...d, avatarImg: String(reader.result || "") }));
-                      reader.readAsDataURL(file);
-                    }}
-                  />
-                </label>
-                {data.avatarImg && (
+              {cfg.avataresPadrao.map((av) => {
+                const selecionado = !data.avatarImg && data.avatar === av.emoji && !av.imagem
+                  || (av.imagem && data.avatarImg === av.imagem);
+                return (
                   <button
-                    onClick={() => atualizar((d) => ({ ...d, avatarImg: "" }))}
-                    className="rounded-xl bg-rose-500/15 px-3 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/25"
+                    key={av.id}
+                    title={av.nome}
+                    onClick={() => atualizar((d) => ({ ...d, avatar: av.emoji, avatarImg: av.imagem || "" }))}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border text-xl transition",
+                      selecionado ? "border-fuchsia-400 bg-fuchsia-500/25 ring-2 ring-fuchsia-400" : "border-white/10 bg-white/5 hover:border-fuchsia-400/40"
+                    )}
                   >
-                    Remover imagem
+                    {av.imagem
+                      ? <img src={av.imagem} alt={av.nome} className="h-full w-full object-cover" />
+                      : av.emoji}
                   </button>
-                )}
-              </div>
-              <p className="text-[10px] text-slate-500">Reflete no sprite isométrico, no perfil e no modo visitante.</p>
+                );
+              })}
             </div>
+            {cfg.itens.filter((i) => i.categoria === "avatar" && data.itens.includes(i.id)).length > 0 && (
+              <div className="mt-4 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.05] p-3">
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-fuchsia-300">Avatares Premium</p>
+                <div className="flex flex-wrap gap-2">
+                  {cfg.itens.filter((i) => i.categoria === "avatar" && data.itens.includes(i.id)).map((i) => (
+                    <button
+                      key={i.id}
+                      onClick={() => atualizar((d) => ({ ...d, avatar: i.emoji, avatarImg: i.imagem }))}
+                      title={i.nome}
+                      className={cn("flex h-12 w-12 items-center justify-center rounded-xl border transition overflow-hidden",
+                        data.avatarImg === i.imagem || (!i.imagem && data.avatar === i.emoji)
+                          ? "border-fuchsia-400 bg-fuchsia-500/25 ring-2 ring-fuchsia-500" : "border-white/10 bg-white/5 hover:border-fuchsia-400/50")}
+                    >
+                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-2xl" className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                  {data.avatarImg && (
+                    <Botao variante="ghost" className="px-2 py-1 text-[10px] h-12" onClick={() => atualizar((d) => ({ ...d, avatarImg: "" }))}>
+                      Remover Premium
+                    </Botao>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</p>

@@ -14,6 +14,7 @@ export type Categoria =
   | "movel"
   | "gpu"
   | "periferico"
+  | "avatar"
   | "outro";
 
 export const CATEGORIAS: {
@@ -31,12 +32,14 @@ export const CATEGORIAS: {
   { id: "movel", nome: "Móveis", emoji: "🪑", slot: null, geraHS: false },
   { id: "gpu", nome: "Placas de vídeo", emoji: "🖥️", slot: "gpu", geraHS: true },
   { id: "periferico", nome: "Periféricos", emoji: "🖱️", slot: "periferico", geraHS: true },
+  { id: "avatar", nome: "Avatares", emoji: "👤", slot: null, geraHS: true },
   { id: "outro", nome: "Outros acessórios", emoji: "🧩", slot: "pet", geraHS: true },
 ];
 
 export const GRUPOS_ADMIN: { id: string; nome: string; cats: Categoria[] }[] = [
   { id: "roupas", nome: "👕 Roupas", cats: ["camisa", "calca", "sapato"] },
   { id: "acessorios", nome: "🎩 Acessórios", cats: ["chapeu", "oculos"] },
+  { id: "avatares", nome: "👤 Avatares Customizados", cats: ["avatar"] },
   { id: "gpus", nome: "🖥️ Placas de vídeo", cats: ["gpu"] },
   { id: "moveis", nome: "🪑 Móveis", cats: ["movel"] },
   { id: "perifericos", nome: "🖱️ Periféricos", cats: ["periferico"] },
@@ -47,11 +50,28 @@ export function infoCategoria(c: Categoria) {
   return CATEGORIAS.find((x) => x.id === c) || CATEGORIAS[CATEGORIAS.length - 1];
 }
 
+/* ---------------- RARIDADE ---------------- */
+export type Raridade = "comum" | "raro" | "epico" | "lendario" | "mitico";
+
+export const RARIDADES: { id: Raridade; nome: string; cor: string; brilho: string; texto: string }[] = [
+  { id: "comum",     nome: "Comum",     cor: "#94a3b8",  texto: "text-slate-300",  brilho: "shadow-[0_0_12px_-4px_#94a3b8]" },
+  { id: "raro",      nome: "Raro",      cor: "#3b82f6",  texto: "text-blue-300",   brilho: "shadow-[0_0_14px_-4px_#3b82f6]" },
+  { id: "epico",     nome: "Épico",     cor: "#a855f7",  texto: "text-purple-300", brilho: "shadow-[0_0_16px_-4px_#a855f7]" },
+  { id: "lendario",  nome: "Lendário",  cor: "#f59e0b",  texto: "text-amber-300",  brilho: "shadow-[0_0_18px_-4px_#f59e0b]" },
+  { id: "mitico",    nome: "Mítico",    cor: "#ec4899",  texto: "text-pink-300",   brilho: "shadow-[0_0_20px_-4px_#ec4899]" },
+];
+
+export function infoRaridade(r: Raridade | undefined | null) {
+  return RARIDADES.find((x) => x.id === r) || RARIDADES[0];
+}
+
 export interface ItemLoja {
   id: string;
   nome: string;
   desc: string;
   categoria: Categoria;
+  /** Nível de raridade do item (Comum é o padrão/fallback). */
+  raridade?: Raridade;
   emoji: string;
   /** URL de imagem PNG (opcional). Se vazio usa o emoji. */
   imagem: string;
@@ -86,6 +106,7 @@ const mk = (p: Partial<ItemLoja> & { id: string; nome: string; categoria: Catego
   return {
     desc: "",
     imagem: "",
+    raridade: "comum",
     nivelMin: 1,
     hs: 0,
     hsOscilacao: 0,
@@ -443,6 +464,12 @@ export interface ConfigGlobal {
   custoSlotHardware: number;
   /** Capacidade máxima global de slots (pode ser sobrescrita por conta). */
   limiteSlotHardwareGlobal: number;
+  /**
+   * Galeria de avatares gratuitos gerenciados pelo Admin.
+   * Ficam disponíveis a todos os usuários sem passar pela loja.
+   * Cada entrada pode ser um emoji simples ou ter URL de imagem.
+   */
+  avataresPadrao: { id: string; emoji: string; imagem: string; nome: string }[];
   atualizadoEm: number;
 }
 
@@ -570,5 +597,23 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   },
   custoSlotHardware: 5000,
   limiteSlotHardwareGlobal: 16,
+  avataresPadrao: [
+    { id: "av_1",  emoji: "🦊", imagem: "", nome: "Raposa"     },
+    { id: "av_2",  emoji: "🐻", imagem: "", nome: "Urso"       },
+    { id: "av_3",  emoji: "🐼", imagem: "", nome: "Panda"      },
+    { id: "av_4",  emoji: "🐸", imagem: "", nome: "Sapo"       },
+    { id: "av_5",  emoji: "🦁", imagem: "", nome: "Leão"       },
+    { id: "av_6",  emoji: "🐧", imagem: "", nome: "Pinguim"    },
+    { id: "av_7",  emoji: "🐳", imagem: "", nome: "Baleia"     },
+    { id: "av_8",  emoji: "🦄", imagem: "", nome: "Unicórnio"  },
+    { id: "av_9",  emoji: "👽", imagem: "", nome: "Alienígena" },
+    { id: "av_10", emoji: "🤠", imagem: "", nome: "Cowboy"     },
+    { id: "av_11", emoji: "🧙", imagem: "", nome: "Mago"       },
+    { id: "av_12", emoji: "🥷", imagem: "", nome: "Ninja"      },
+    { id: "av_13", emoji: "🐺", imagem: "", nome: "Lobo"       },
+    { id: "av_14", emoji: "🦉", imagem: "", nome: "Coruja"     },
+    { id: "av_15", emoji: "🐲", imagem: "", nome: "Dragão"     },
+    { id: "av_16", emoji: "🦈", imagem: "", nome: "Tubarão"    },
+  ],
   atualizadoEm: 0,
 };
