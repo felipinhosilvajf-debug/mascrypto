@@ -22,17 +22,30 @@ export const STATUS_QUARTO = [
   "Caçando airdrops",
 ];
 
-/** Slots de equipamento — usados pelo inventário e pelo avatar do quarto. */
-export const SLOTS: { id: string; nome: string; emoji: string }[] = [
-  { id: "chapeu", nome: "Chapéu", emoji: "🎩" },
-  { id: "oculos", nome: "Óculos", emoji: "🕶️" },
-  { id: "camisa", nome: "Camisa", emoji: "👕" },
-  { id: "calca", nome: "Calça", emoji: "👖" },
-  { id: "sapato", nome: "Sapato", emoji: "👟" },
-  { id: "gpu", nome: "Placa de vídeo", emoji: "🖥️" },
-  { id: "periferico", nome: "Periférico", emoji: "🖱️" },
-  { id: "pet", nome: "Companheiro", emoji: "🧩" },
+/**
+ * SLOTS RPG — aparência do avatar (SOMENTE roupas, chapéus, acessórios vestíveis e pets).
+ * Placas de vídeo e periféricos de mineração NÃO entram aqui — vão para os slots do quarto.
+ */
+export const SLOTS_RPG: { id: string; nome: string; emoji: string }[] = [
+  { id: "chapeu",   nome: "Chapéu",      emoji: "🎩" },
+  { id: "oculos",   nome: "Óculos",      emoji: "🕶️" },
+  { id: "camisa",   nome: "Camisa",      emoji: "👕" },
+  { id: "calca",    nome: "Calça",       emoji: "👖" },
+  { id: "sapato",   nome: "Sapato",      emoji: "👟" },
+  { id: "pet",      nome: "Companheiro", emoji: "🧩" },
 ];
+
+/**
+ * SLOTS HARDWARE — posicionados no quarto; geram Hashrate.
+ * Cada slot ativo soma H/s ao cálculo global.
+ */
+export const SLOTS_HARDWARE: { id: string; nome: string; emoji: string }[] = [
+  { id: "gpu",       nome: "Placa de vídeo", emoji: "🖥️" },
+  { id: "periferico", nome: "Periférico",    emoji: "🖱️" },
+];
+
+/** LEGADO — exportado para componentes que ainda usam "SLOTS" diretamente. */
+export const SLOTS = [...SLOTS_RPG, ...SLOTS_HARDWARE];
 
 export interface Transacao {
   t: string;
@@ -78,6 +91,19 @@ export interface UserData {
   criadoEm: number;
   admin: boolean;
   banido: boolean;
+  /** Versão dos Termos de Uso aceita pelo usuário. */
+  termosVersao?: string;
+  /** Data/hora (ms) do aceite dos Termos de Uso. */
+  termosAceitosEm?: number;
+  /** Quarto aberto para visitas de outros jogadores. */
+  quartoAberto?: boolean;
+  /**
+   * Slots de hardware do quarto (GPUs/periféricos colocados na fazenda do quarto).
+   * Chave = ID do item, valor = índice do slot (0-based).
+   */
+  slotsHardware: Record<string, number>;
+  /** Capacidade atual de slots de hardware comprados pelo usuário. */
+  capacidadeSlotsHardware: number;
   /** Incrementado pelo Admin — força o cliente a adotar os dados remotos. */
   adminRev: number;
   atualizadoEm: number;
@@ -100,6 +126,8 @@ export function novoUsuario(uid: string, nome: string, email: string, saldoInici
     tema: "neon",
     quarto: {},
     avatarPos: { x: 4, y: 3 },
+    slotsHardware: {},
+    capacidadeSlotsHardware: 4,
     ultimaColeta: Date.now(),
     lastDailyClaim: "",
     streakDays: 0,
@@ -141,6 +169,10 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
   d.equipados = d.equipados && typeof d.equipados === "object" ? d.equipados : {};
   d.rigs = d.rigs && typeof d.rigs === "object" ? d.rigs : {};
   d.quarto = d.quarto && typeof d.quarto === "object" ? d.quarto : {};
+  d.slotsHardware = (d as any).slotsHardware && typeof (d as any).slotsHardware === "object"
+    ? (d as any).slotsHardware
+    : {};
+  d.capacidadeSlotsHardware = Math.max(4, Number((d as any).capacidadeSlotsHardware) || 4);
   d.avatarPos = d.avatarPos && typeof d.avatarPos.x === "number" && typeof d.avatarPos.y === "number"
     ? d.avatarPos
     : { x: 4, y: 3 };

@@ -1,8 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import Bilheteria from "../games/Bilheteria";
 import { Card, Selo, Vazio } from "./UI";
-import { Bomb, Building2, CircleDot, Coins, Dice5, Disc3, GitFork, Rocket, Spade, type LucideIcon } from "lucide-react";
+import {
+  Bomb,
+  Building2,
+  CircleDot,
+  Coins,
+  Dice5,
+  Disc3,
+  GitFork,
+  Rocket,
+  Spade,
+  CircleDashed,
+  Layers,
+  TrendingUp,
+  Grid3x3,
+  Flame,
+  Ticket,
+  type LucideIcon,
+} from "lucide-react";
 import { CaraCoroa, Crash, Dados, Double, Mines, Plinko, Roleta, Slots, Torre } from "../games/Jogos";
+import { HiLo, HotZone, Keno, Limbo, Wheel } from "../games/JogosNovos";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { fmtMAS, fmtNum } from "../lib/economia";
@@ -17,6 +35,11 @@ const COMPONENTES: Record<string, React.ComponentType> = {
   torre: Torre,
   double: Double,
   plinko: Plinko,
+  wheel: Wheel,
+  hilo: HiLo,
+  limbo: Limbo,
+  keno: Keno,
+  hotzone: HotZone,
 };
 
 const ICONES: Record<string, LucideIcon> = {
@@ -29,6 +52,11 @@ const ICONES: Record<string, LucideIcon> = {
   torre: Building2,
   double: Disc3,
   plinko: GitFork,
+  wheel: CircleDashed,
+  hilo: Layers,
+  limbo: TrendingUp,
+  keno: Grid3x3,
+  hotzone: Flame,
 };
 
 const BRILHOS: Record<string, string> = {
@@ -116,6 +144,35 @@ export default function CasinoView() {
         </Card>
       ) : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+          {/* ── Atalho DESTACADO da Bilheteria ── */}
+          {cfg.bilheteria.ativa && (
+            <button
+              onClick={() => setAtivo(ativo === "bilheteria" ? null : "bilheteria")}
+              className={`group relative col-span-2 overflow-hidden rounded-2xl border-2 p-4 text-left transition-all duration-300 ${
+                ativo === "bilheteria"
+                  ? "border-amber-300 bg-amber-400/25 shadow-[0_0_40px_-8px_rgba(251,191,36,1)]"
+                  : "border-amber-400/60 bg-[linear-gradient(135deg,rgba(251,191,36,.22),rgba(217,70,239,.12))] shadow-[0_0_28px_-10px_rgba(251,191,36,.9)] hover:-translate-y-1.5 hover:border-amber-300"
+              }`}
+            >
+              <span className="pointer-events-none absolute inset-0 animate-[neonRing_2.6s_ease-in-out_infinite] rounded-2xl" />
+              <span className="absolute right-2 top-2 animate-pulse rounded-full bg-amber-400 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-900">
+                ★ Destaque
+              </span>
+              <div className="relative flex items-center gap-3">
+                <Ticket className="h-11 w-11 shrink-0 stroke-[1.6] text-amber-300 drop-shadow-[0_0_14px_rgba(251,191,36,.95)] transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
+                <div className="min-w-0">
+                  <p className="text-base font-black text-white">Bilheteria de Blocos</p>
+                  <p className="text-[10px] leading-tight text-amber-100/80">
+                    Sorteio coletivo · 1 bilhete por pessoa · vencedor leva 100% do pote
+                  </p>
+                  <Selo tom="ouro" className="mt-1.5">
+                    {fmtMAS(cfg.bilheteria.custoBilhete + cfg.bilheteria.taxaCasa)} por bilhete
+                  </Selo>
+                </div>
+              </div>
+            </button>
+          )}
+
           {disponiveis.map((j) => (
             (() => {
               const Icone = ICONES[j.id] || CircleDot;
@@ -164,7 +221,11 @@ export default function CasinoView() {
         </div>
       )}
 
-      {Jogo ? (
+      {ativo === "bilheteria" ? (
+        <div className="animate-[subir_.35s_cubic-bezier(.2,.8,.2,1)]">
+          <Bilheteria />
+        </div>
+      ) : Jogo ? (
         <div className="animate-[subir_.35s_cubic-bezier(.2,.8,.2,1)]">
           <Jogo />
         </div>
@@ -181,20 +242,6 @@ export default function CasinoView() {
             </div>
           </Card>
         )
-      )}
-
-      {/* ── Bilheteria em destaque ── */}
-      {cfg.bilheteria.ativa && (
-        <div>
-          <div className="mb-3 flex items-center gap-2">
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-0.5 text-[11px] font-black uppercase tracking-widest text-amber-300">
-              🎟️ Jogo em Destaque
-            </span>
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
-          </div>
-          <Bilheteria />
-        </div>
       )}
 
       <p className="text-center text-[11px] text-slate-600">

@@ -3,7 +3,7 @@ import { Botao } from "../components/UI";
 import { fmtMAS, fmtNum as fmt } from "../lib/economia";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { ControleAposta, Painel, Resultado, resultadoComRtp, useAposta, useRtp } from "./Comum";
+import { ControleAposta, Painel, PainelAuto, Resultado, resultadoComRtp, useAposta, useAutoplay, useRtp } from "./Comum";
 
 /* ---------------- CARA OU COROA ---------------- */
 export function CaraCoroa() {
@@ -28,6 +28,8 @@ export function CaraCoroa() {
     }, 1500);
   };
 
+  const autoMoeda = useAutoplay(jogar, !girando && valida, 2200);
+
   return (
     <Painel
       titulo="Cara ou Coroa"
@@ -49,9 +51,10 @@ export function CaraCoroa() {
             ))}
           </div>
           <p className="text-xs text-slate-400">Pagamento 1.96x</p>
-          <Botao className="w-full py-3" disabled={girando} onClick={jogar}>
+          <Botao className="w-full py-3" disabled={girando || autoMoeda.ativo} onClick={jogar}>
             {girando ? "Girando..." : "Apostar"}
           </Botao>
+          <PainelAuto auto={autoMoeda} travado={girando} />
         </>
       }
     >

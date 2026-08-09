@@ -134,11 +134,81 @@ export function BilheteriaAdmin() {
       toast(b.pausada ? "Bilheteria retomada" : "Bilheteria pausada", "info");
     });
 
+  /**
+   * Encerra a rodada AGORA: sorteia um bloco vendido, define o vencedor e
+   * credita 100% do pote na carteira dele — tudo em uma transação atômica.
+   */
   const encerrar = () =>
-    fbOp(async ({ updateDoc, doc }) => {
+    fbOp(async ({ runTransaction, doc }) => {
       const { db } = await import("../lib/firebase");
-      await updateDoc(doc(db, "bilheteria", "rodada_atual"), { encerrada: true, pausada: false });
-      toast("Rodada encerrada pelo Admin", "info");
+      const { normalizar } = await import("../lib/types");
+
+      const resultado = await runTransaction(db, async (tx) => {
+        const rRef = doc(db, "bilheteria", "rodada_atual");
+        const snap = await tx.get(rRef);
+        if (!snap.exists()) throw new Error("Nenhuma rodada ativa");
+        const r = snap.data() as {
+          rodada: number;
+          pote: number;
+          bilhetes: Record<string, string[]>;
+          encerrada: boolean;
+        };
+        if (r.encerrada) throw new Error("Rodada já encerrada");
+
+        const vendidos = Object.keys(r.bilhetes || {}).filter((k) => (r.bilhetes[k] || []).length > 0);
+        if (vendidos.length === 0) {
+          tx.set(rRef, { ...r, encerrada: true, sorteado: -1 });
+          return { semBilhetes: true, bloco: -1, premio: 0, nome: "" };
+        }
+
+        const bloco = Number(vendidos[Math.floor(Math.random() * vendidos.length)]);
+        const uidVencedor = r.bilhetes[bloco][0];
+        const premio = r.pote || 0;
+
+        // Credita o prêmio na carteira do vencedor
+        const uRef = doc(db, "users", uidVencedor);
+        const uSnap = await tx.get(uRef);
+        let nome = "Jogador";
+        if (uSnap.exists()) {
+          const u = normalizar(uSnap.data() as Record<string, unknown>, uidVencedor);
+          nome = u.nome;
+          tx.set(uRef, {
+            ...u,
+            saldo: u.saldo + premio,
+            historico: [
+              {
+                t: "Bilheteria · Prêmio",
+                v: premio,
+                d: `Bloco ${bloco} · rodada #${r.rodada}`,
+                ts: Date.now(),
+                moeda: "MAS" as const,
+              },
+              ...u.historico,
+            ].slice(0, 60),
+            adminRev: (u.adminRev || 0) + 1,
+            atualizadoEm: Date.now(),
+          });
+        }
+
+        tx.set(rRef, {
+          ...r,
+          encerrada: true,
+          pausada: false,
+          sorteado: bloco,
+          vencedor: { uid: uidVencedor, nome, premio },
+        });
+        return { semBilhetes: false, bloco, premio, nome };
+      });
+
+      if (resultado.semBilhetes) {
+        toast("Rodada encerrada — nenhum bilhete vendido", "info");
+      } else {
+        toast(
+          `🎯 Bloco ${resultado.bloco} sorteado! ${resultado.nome} recebeu ${fmtMAS(resultado.premio)}`,
+          "ok",
+        );
+      }
+      window.dispatchEvent(new Event("balanceUpdate"));
     });
 
   return (
@@ -207,8 +277,13 @@ export function BilheteriaAdmin() {
           {b.pausada ? "▶ Retomar rodada" : "⏸ Pausar rodada"}
         </Botao>
         <Botao variante="perigo" className="py-3" onClick={encerrar}>
-          🛑 Encerrar rodada
+          🎯 Encerrar e sortear agora
         </Botao>
+      </div>
+
+      <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.07] p-3 text-xs text-amber-200/90">
+        <b>Encerrar e sortear agora:</b> finaliza a rodada imediatamente, sorteia um dos blocos vendidos, anuncia o
+        vencedor e credita <b>100% do pote</b> na carteira dele automaticamente (transação atômica).
       </div>
     </div>
   );

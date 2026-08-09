@@ -182,6 +182,11 @@ export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo">[] = [
   { id: "torre", nome: "Torre da Sorte", emoji: "🗼", desc: "8 andares de tensão", tag: "Tensão", rtp: 0.967, houseEdge: 0.033, apostaMin: 1, apostaMax: 50000 },
   { id: "double", nome: "Double Neon", emoji: "◉", desc: "Vermelho, preto ou dourado", tag: "Novo", rtp: 0.96, houseEdge: 0.04, apostaMin: 1, apostaMax: 75000 },
   { id: "plinko", nome: "Plinko Matrix", emoji: "◆", desc: "Solte a esfera e multiplique", tag: "Novo", rtp: 0.95, houseEdge: 0.05, apostaMin: 1, apostaMax: 50000 },
+  { id: "wheel", nome: "Roda da Fortuna", emoji: "☸", desc: "Gire e multiplique até 20x", tag: "Novo", rtp: 0.96, houseEdge: 0.04, apostaMin: 1, apostaMax: 60000 },
+  { id: "hilo", nome: "Hi-Lo", emoji: "🂡", desc: "Maior ou menor que a carta", tag: "Novo", rtp: 0.97, houseEdge: 0.03, apostaMin: 1, apostaMax: 80000 },
+  { id: "limbo", nome: "Limbo", emoji: "⇡", desc: "Escolha o alvo e desafie a sorte", tag: "Novo", rtp: 0.98, houseEdge: 0.02, apostaMin: 1, apostaMax: 100000 },
+  { id: "keno", nome: "Keno MAS", emoji: "⬢", desc: "Escolha 10 de 40 números", tag: "Novo", rtp: 0.94, houseEdge: 0.06, apostaMin: 1, apostaMax: 40000 },
+  { id: "hotzone", nome: "Hot Zone", emoji: "⬤", desc: "Ache a zona segura e saque", tag: "Novo", rtp: 0.96, houseEdge: 0.04, apostaMin: 1, apostaMax: 60000 },
 ];
 
 export function jogoPadrao(id: string): JogoConfig {
@@ -322,6 +327,25 @@ export interface ConfigVisual {
 }
 
 /* ------------------- CONFIG GLOBAL ------------------- */
+export interface ConfigModulos {
+  /** Aba Mundo (chat de quartos e diretório) */
+  mundo: boolean;
+  /** Aba Loja */
+  loja: boolean;
+  /** Aba Cassino */
+  cassino: boolean;
+  /** Aba Carteira */
+  carteira: boolean;
+  /** Aba Suporte */
+  suporte: boolean;
+  /** Aba Ranking */
+  ranking: boolean;
+  /** Aba Quarto */
+  quarto: boolean;
+  /** Aba Mineração */
+  mineracao: boolean;
+}
+
 export interface ConfigGlobal {
   versao: number;
   itens: ItemLoja[];
@@ -350,6 +374,12 @@ export interface ConfigGlobal {
   bilheteria: ConfigBilheteria;
   overrides: ConfigOverrides;
   visual: ConfigVisual;
+  /** Ativação/desativação individual de abas e módulos do site. */
+  modulos: ConfigModulos;
+  /** Custo em MAS para comprar 1 slot extra de hardware no quarto. */
+  custoSlotHardware: number;
+  /** Capacidade máxima global de slots (pode ser sobrescrita por conta). */
+  limiteSlotHardwareGlobal: number;
   atualizadoEm: number;
 }
 
@@ -429,5 +459,17 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     particulasAtivas: true,
     neonGlowAtivo: true,
   },
+  modulos: {
+    mundo: true,
+    loja: true,
+    cassino: true,
+    carteira: true,
+    suporte: true,
+    ranking: true,
+    quarto: true,
+    mineracao: true,
+  },
+  custoSlotHardware: 5000,
+  limiteSlotHardwareGlobal: 16,
   atualizadoEm: 0,
 };

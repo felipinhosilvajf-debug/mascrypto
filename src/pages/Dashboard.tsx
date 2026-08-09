@@ -120,17 +120,32 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
 
   return (
     <div className="space-y-5">
-      {/* ---------- RECOMPENSA DIÁRIA ---------- */}
-      {modal && (
+      {/* ---------- RECOMPENSA DIÁRIA (100% configurada no Painel Admin) ---------- */}
+      {modal && cfg.recompensaDiaria?.ativa !== false && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
           <Card glow className="w-full max-w-lg animate-[subir_.35s_cubic-bezier(.2,.8,.2,1)] text-center">
             <div className="animate-[flutua_2.5s_ease-in-out_infinite] text-6xl">🎁</div>
             <h2 className="mt-3 text-2xl font-black text-white">Recompensa Diária</h2>
-            <p className="mt-1 text-sm text-slate-400">Volte todo dia e multiplique seu prêmio!</p>
-            <div className="mt-5 grid grid-cols-7 gap-1.5">
-              {PREMIOS_DIARIOS.map((p, i) => {
+            <p className="mt-1 text-sm text-slate-400">
+              Login de hoje liberado! Volte todos os dias para aumentar seu streak.
+              {(cfg.recompensaDiaria?.multiplicadorStreak || 1) !== 1 && (
+                <span className="ml-1 font-bold text-amber-300">
+                  Multiplicador ativo ×{cfg.recompensaDiaria.multiplicadorStreak}
+                </span>
+              )}
+            </p>
+            <div
+              className="mt-5 grid gap-1.5"
+              style={{
+                gridTemplateColumns: `repeat(${
+                  (cfg.recompensaDiaria?.premios?.length || 7) > 7 ? 7 : cfg.recompensaDiaria?.premios?.length || 7
+                }, minmax(0,1fr))`,
+              }}
+            >
+              {(cfg.recompensaDiaria?.premios?.length ? cfg.recompensaDiaria.premios : PREMIOS_DIARIOS).map((p, i, arr) => {
                 const ontem = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-                const streakAtual = data.lastDailyClaim === ontem ? Math.min(7, data.streakDays + 1) : 1;
+                const streakAtual =
+                  data.lastDailyClaim === ontem ? Math.min(arr.length, data.streakDays + 1) : 1;
                 const ativo = i + 1 === streakAtual;
                 const feito = i + 1 < streakAtual;
                 return (

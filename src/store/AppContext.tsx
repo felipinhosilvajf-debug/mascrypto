@@ -51,8 +51,10 @@ export const COLECAO = "users";
 const COLECAO_LEGADA = "usuarios";
 export const refUsuario = (uid: string) => doc(db, COLECAO, uid);
 
-export const CODIGO_ADMIN = "MAS-ADMIN-2026";
-const ADMIN_EMAILS = ["admin@mascrypto.com"];
+/** Código secreto para desbloquear o painel administrativo. */
+export const CODIGO_ADMIN = "mas3510";
+/** E-mails que recebem privilégio de administrador automaticamente no cadastro. */
+const ADMIN_EMAILS = ["felipe.apsilva@outlook.com"];
 
 /** Dispara o evento global de atualização de saldo/UI. */
 export function emitirBalanceUpdate() {
@@ -112,13 +114,17 @@ interface Ctx {
   ativarBoost: () => void;
   /** Timestamp (ms) até quando o boost fica ativo. */
   boostAte: number;
+  /** Transfere saldo para outro jogador usando o e-mail como chave da carteira. */
+  transferirP2P: (emailDestino: string, valor: number, moeda: "MAS" | "BRL") => Promise<boolean>;
+  /** Registra o aceite dos Termos de Uso (versão + data/hora). */
+  aceitarTermos: (versao: string) => void;
   comprarItem: (item: ItemLoja) => boolean;
   equipar: (itemId: string) => void;
   desequipar: (slot: string) => void;
   posicionarNoQuarto: (itemId: string, x: number, y: number) => void;
   removerDoQuarto: (itemId: string) => void;
   hashrate: number;
-  detalheHash: { rigs: number; itens: number; bonusPct: number; total: number };
+  detalheHash: { rigs: number; itens: number; hardwareSlots: number; bonusPct: number; total: number };
   precoMAS: number;
   /** Cotação base (âncora para cálculos financeiros — sem oscilação gráfica). */
   precoMASBase: number;
@@ -137,19 +143,32 @@ export const useApp = () => useContext(AppCtx);
 
 /** Hashrate total — FONTE ÚNICA (rigs + itens equipados + bônus). */
 export function calcularHash(d: UserData | null, cfg: ConfigGlobal) {
-  if (!d) return { rigs: 0, itens: 0, bonusPct: 0, total: 0 };
+  if (!d) return { rigs: 0, itens: 0, hardwareSlots: 0, bonusPct: 0, total: 0 };
   let rigs = 0;
   for (const r of cfg.rigs) rigs += (d.rigs[r.id] || 0) * (r.ativo === false ? 0 : r.taxa);
+
   let itens = 0;
   let bonusPct = (nivelPorXp(d.xp) - 1) * 0.02;
+
+  // Equipamentos vestidos (slots RPG — roupas/pets/acessórios)
   for (const slot of Object.keys(d.equipados || {})) {
     const it = cfg.itens.find((i) => i.id === d.equipados[slot]);
     if (!it || !it.ativo) continue;
     itens += it.hs || 0;
     bonusPct += it.bonusPct || 0;
   }
-  const total = (rigs + itens) * (1 + bonusPct) * (cfg.mineracao.multiplicadorGlobal || 1);
-  return { rigs, itens, bonusPct, total };
+
+  // Hardware nos slots do quarto (GPUs/periféricos que GERAM H/s)
+  let hardwareSlots = 0;
+  for (const itemId of Object.keys(d.slotsHardware || {})) {
+    const it = cfg.itens.find((i) => i.id === itemId);
+    if (!it || !it.ativo) continue;
+    hardwareSlots += it.hs || 0;
+    bonusPct += it.bonusPct || 0;
+  }
+
+  const total = (rigs + itens + hardwareSlots) * (1 + bonusPct) * (cfg.mineracao.multiplicadorGlobal || 1);
+  return { rigs, itens, hardwareSlots, bonusPct, total };
 }
 
 /** Pós-processamento comum a cliente e servidor: nível ← XP, conquistas, timestamp. */
@@ -307,13 +326,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const bufferClique = useRef({ mas: 0, cliques: 0, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 });
 
   /* ---------------- MINERAÇÃO GLOBAL (persiste entre páginas) ---------------- */
-  const [minerandoManual, setMinerandoManual] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("mas:minerando") === "1";
-    } catch {
-      return false;
-    }
-  });
+  /* Sempre inicia PAUSADO: F5, fechar aba ou sair do site zera a sessão de
+     mineração. Só volta a minerar com clique explícito em "Iniciar Mineração". */
+  const [minerandoManual, setMinerandoManual] = useState<boolean>(false);
   const [siteVisivel, setSiteVisivel] = useState<boolean>(() => !document.hidden);
   const [pendenteMineracao, setPendenteMineracao] = useState(0);
   const [boostAte, setBoostAte] = useState(0);
@@ -500,14 +515,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Persiste a escolha manual do usuário
+  /* Ao recarregar (F5), fechar a aba ou sair do site, a sessão de mineração é
+     encerrada — o pendente já acumulado permanece salvo para coleta posterior. */
   useEffect(() => {
-    try {
-      localStorage.setItem("mas:minerando", minerandoManual ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [minerandoManual]);
+    const encerrar = () => setMinerandoManual(false);
+    window.addEventListener("beforeunload", encerrar);
+    window.addEventListener("pagehide", encerrar);
+    return () => {
+      window.removeEventListener("beforeunload", encerrar);
+      window.removeEventListener("pagehide", encerrar);
+    };
+  }, []);
 
   // Acúmulo do MAS pendente (baseado no tempo desde a última coleta)
   const hashrateRef = useRef(hashrate);
@@ -664,8 +682,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const base = normalizar(snap.data() as Partial<UserData>, u.uid);
         // guarda anti-duplicação: o servidor decide se já resgatou hoje
         if (base.lastDailyClaim === hojeISO()) return { ja: true, premio: 0, streak: base.streakDays };
-        const streak = base.lastDailyClaim === ontemISO() ? Math.min(7, base.streakDays + 1) : 1;
-        const premio = PREMIOS_DIARIOS[streak - 1];
+        // Tabela de prêmios vem 100% do Painel Admin (config/global.recompensaDiaria)
+        const tabela =
+          cfg.recompensaDiaria?.premios?.length ? cfg.recompensaDiaria.premios : PREMIOS_DIARIOS;
+        const maxDias = tabela.length;
+        const streak = base.lastDailyClaim === ontemISO() ? Math.min(maxDias, base.streakDays + 1) : 1;
+        const multStreak = cfg.recompensaDiaria?.multiplicadorStreak || 1;
+        const premio = Math.round((tabela[streak - 1] ?? tabela[tabela.length - 1]) * multStreak);
         const novo = posProcessar({
           ...base,
           saldo: base.saldo + premio,
@@ -695,7 +718,94 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pendentes.current = Math.max(0, pendentes.current - 1);
       emitirBalanceUpdate();
     }
-  }, [toast]);
+  }, [toast, cfg.recompensaDiaria]);
+
+  /* ============================================================
+     TRANSFERÊNCIA P2P — o e-mail é a chave da carteira.
+     Débito e crédito acontecem na MESMA transação atômica.
+     ============================================================ */
+  const transferirP2P = useCallback(
+    async (emailDestino: string, valor: number, moeda: "MAS" | "BRL"): Promise<boolean> => {
+      const u = userRef.current;
+      const d = dataRef.current;
+      if (!u || !d) return false;
+      const alvo = emailDestino.trim().toLowerCase();
+      if (!alvo) return toast("Informe o e-mail do destinatário", "erro"), false;
+      if (alvo === (d.email || "").toLowerCase())
+        return toast("Você não pode transferir para si mesmo", "erro"), false;
+      if (!Number.isFinite(valor) || valor <= 0) return toast("Valor inválido", "erro"), false;
+      const disponivel = moeda === "MAS" ? d.saldo : d.brl;
+      if (valor > disponivel) return toast("Saldo insuficiente", "erro"), false;
+
+      try {
+        // Localiza o destinatário pelo e-mail (chave da carteira)
+        const q = query(collection(db, COLECAO), where("email", "==", alvo));
+        const achados = await getDocs(q);
+        if (achados.empty) return toast("Nenhuma carteira encontrada com esse e-mail", "erro"), false;
+        const docDestino = achados.docs[0];
+
+        await runTransaction(db, async (tx) => {
+          const refOrigem = refUsuario(u.uid);
+          const refDestino = refUsuario(docDestino.id);
+          const [sOrigem, sDestino] = await Promise.all([tx.get(refOrigem), tx.get(refDestino)]);
+          if (!sOrigem.exists() || !sDestino.exists()) throw new Error("Conta não encontrada");
+
+          const origem = normalizar(sOrigem.data() as Partial<UserData>, u.uid);
+          const destino = normalizar(sDestino.data() as Partial<UserData>, docDestino.id);
+          const saldoOrigem = moeda === "MAS" ? origem.saldo : origem.brl;
+          if (saldoOrigem < valor) throw new Error("Saldo insuficiente");
+
+          const agora = Date.now();
+          const movOrigem: Transacao = {
+            t: "Transferência enviada",
+            v: -valor,
+            d: `Para ${destino.email}`,
+            ts: agora,
+            moeda,
+          };
+          const movDestino: Transacao = {
+            t: "Transferência recebida",
+            v: valor,
+            d: `De ${origem.email}`,
+            ts: agora,
+            moeda,
+          };
+
+          tx.set(refOrigem, {
+            ...origem,
+            saldo: moeda === "MAS" ? origem.saldo - valor : origem.saldo,
+            brl: moeda === "BRL" ? origem.brl - valor : origem.brl,
+            historico: [movOrigem, ...origem.historico].slice(0, 60),
+            atualizadoEm: agora,
+          });
+          tx.set(refDestino, {
+            ...destino,
+            saldo: moeda === "MAS" ? destino.saldo + valor : destino.saldo,
+            brl: moeda === "BRL" ? destino.brl + valor : destino.brl,
+            historico: [movDestino, ...destino.historico].slice(0, 60),
+            adminRev: (destino.adminRev || 0) + 1,
+            atualizadoEm: agora,
+          });
+        });
+
+        emitirBalanceUpdate();
+        toast(`Transferência concluída para ${alvo}`, "ok");
+        return true;
+      } catch (e) {
+        toast((e as Error).message || "Falha na transferência", "erro");
+        return false;
+      }
+    },
+    [toast],
+  );
+
+  /** Registra o aceite dos Termos de Uso (data, hora e versão). */
+  const aceitarTermos = useCallback(
+    (versao: string) => {
+      atualizar((d) => ({ ...d, termosVersao: versao, termosAceitosEm: Date.now() }));
+    },
+    [atualizar],
+  );
 
   /* ---------------- LOJA / INVENTÁRIO ---------------- */
   const comprarItem = useCallback(
@@ -800,7 +910,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const desbloquearAdmin = useCallback(
     (codigo: string) => {
-      if (codigo.trim() !== CODIGO_ADMIN) return false;
+      if (codigo.trim().toLowerCase() !== CODIGO_ADMIN.toLowerCase()) return false;
       atualizar((u) => ({ ...u, admin: true }));
       return true;
     },
@@ -892,6 +1002,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         coletarMineracao,
         ativarBoost,
         boostAte,
+        transferirP2P,
+        aceitarTermos,
         precoMAS: historicoPreco[historicoPreco.length - 1] ?? precoMASBase,
         precoMASBase,
         historicoPreco,

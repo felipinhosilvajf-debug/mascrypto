@@ -15,7 +15,7 @@ import {
 import { fmtBRL, fmtMAS, fmtNum } from "../lib/economia";
 import { Abas, Botao, Campo, Card, GraficoStatus, Input, Selo, Sparkline, Textarea, Vazio } from "./UI";
 
-type Aba = "converter" | "depositar" | "sacar" | "pedidos" | "extrato";
+type Aba = "converter" | "transferir" | "depositar" | "sacar" | "pedidos" | "extrato";
 
 const STATUS = {
   pendente: { label: "Em análise", tom: "ouro" as const, icone: "⌛" },
@@ -24,9 +24,13 @@ const STATUS = {
 };
 
 export default function WalletView() {
-  const { user, data, mover, precoMAS, precoMASBase, historicoPreco, proximoTickMs, toast } = useApp();
+  const { user, data, mover, transferirP2P, precoMAS, precoMASBase, historicoPreco, proximoTickMs, toast } = useApp();
   const { cfg } = useConfig();
   const [aba, setAba] = useState<Aba>("converter");
+  const [emailDestino, setEmailDestino] = useState("");
+  const [valorP2P, setValorP2P] = useState(1);
+  const [moedaP2P, setMoedaP2P] = useState<"MAS" | "BRL">("MAS");
+  const [enviandoP2P, setEnviandoP2P] = useState(false);
   const [direcao, setDirecao] = useState<"MAS_BRL" | "BRL_MAS">("MAS_BRL");
   const [valorConversao, setValorConversao] = useState(10);
   const [valorDeposito, setValorDeposito] = useState(DEPOSITO_MINIMO);
@@ -146,6 +150,7 @@ export default function WalletView() {
       <Abas
         abas={[
           { id: "converter" as const, nome: "Converter", emoji: "↔" },
+          { id: "transferir" as const, nome: "Transferir", emoji: "👥" },
           { id: "depositar" as const, nome: "Depositar", emoji: "+" },
           { id: "sacar" as const, nome: "Sacar", emoji: "−" },
           { id: "pedidos" as const, nome: "Solicitações", emoji: "⌛", badge: pendentes },
@@ -179,6 +184,109 @@ export default function WalletView() {
               <p className="mt-2 text-[10px] text-slate-500">Cotação aplicada: 1 MAS = {fmtBRL(precoMAS)}</p>
             </div>
             <Botao className="w-full py-3" disabled={bruto <= 0 || bruto > saldoOrigem} onClick={converter}>Converter {direcao === "MAS_BRL" ? "MAS em Reais" : "Reais em MAS"}</Botao>
+          </div>
+        </Card>
+      )}
+
+      {aba === "transferir" && (
+        <Card className="mx-auto max-w-2xl">
+          <h3 className="font-black text-white">👥 Transferir para outro jogador</h3>
+          <p className="mt-1 text-xs text-slate-400">
+            O <b className="text-fuchsia-300">e-mail é a chave da carteira</b>. A transferência é instantânea,
+            atômica e sem taxas entre contas da rede MAS.
+          </p>
+
+          <div className="mt-3 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/[0.07] p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-fuchsia-300/80">Sua chave de carteira</p>
+            <p className="mt-0.5 break-all font-mono text-sm font-bold text-white">{data.email}</p>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <Campo label="E-mail do destinatário" dica="Precisa ser uma conta já cadastrada na plataforma">
+              <Input
+                type="email"
+                placeholder="jogador@email.com"
+                value={emailDestino}
+                onChange={(e) => setEmailDestino(e.target.value)}
+              />
+            </Campo>
+
+            <Campo label="Moeda">
+              <div className="grid grid-cols-2 gap-2">
+                {(["MAS", "BRL"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMoedaP2P(m)}
+                    className={`rounded-xl border py-2.5 text-sm font-black transition ${
+                      moedaP2P === m
+                        ? "border-fuchsia-400 bg-fuchsia-500/20 text-white"
+                        : "border-white/10 bg-white/5 text-slate-400"
+                    }`}
+                  >
+                    {m === "MAS" ? `MAS · ${fmtMAS(data.saldo)}` : `Reais · ${fmtBRL(data.brl)}`}
+                  </button>
+                ))}
+              </div>
+            </Campo>
+
+            <Campo label={`Valor em ${moedaP2P}`}>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={valorP2P}
+                  onChange={(e) => setValorP2P(Math.max(0, Number(e.target.value)))}
+                />
+                <Botao
+                  variante="ghost"
+                  className="shrink-0"
+                  onClick={() => setValorP2P(moedaP2P === "MAS" ? data.saldo : data.brl)}
+                >
+                  Transferir tudo
+                </Botao>
+              </div>
+            </Campo>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm">
+              <div className="flex justify-between py-1 text-slate-300">
+                <span>Valor enviado</span>
+                <b>{moedaP2P === "MAS" ? fmtMAS(valorP2P) : fmtBRL(valorP2P)}</b>
+              </div>
+              <div className="flex justify-between py-1 text-slate-300">
+                <span>Taxa de transferência</span>
+                <b className="text-emerald-300">Grátis</b>
+              </div>
+              <div className="mt-2 flex justify-between border-t border-white/10 pt-3 font-black text-emerald-300">
+                <span>O destinatário recebe</span>
+                <span>{moedaP2P === "MAS" ? fmtMAS(valorP2P) : fmtBRL(valorP2P)}</span>
+              </div>
+            </div>
+
+            <Botao
+              className="w-full py-3"
+              disabled={
+                enviandoP2P ||
+                !emailDestino.trim() ||
+                valorP2P <= 0 ||
+                valorP2P > (moedaP2P === "MAS" ? data.saldo : data.brl)
+              }
+              onClick={async () => {
+                setEnviandoP2P(true);
+                const ok = await transferirP2P(emailDestino, valorP2P, moedaP2P);
+                if (ok) {
+                  setEmailDestino("");
+                  setValorP2P(1);
+                  setAba("extrato");
+                }
+                setEnviandoP2P(false);
+              }}
+            >
+              {enviandoP2P ? "Transferindo..." : `Enviar ${moedaP2P === "MAS" ? fmtMAS(valorP2P) : fmtBRL(valorP2P)}`}
+            </Botao>
+            <p className="text-center text-[11px] text-slate-500">
+              Confira o e-mail antes de confirmar — transferências entre jogadores não podem ser revertidas.
+            </p>
           </div>
         </Card>
       )}

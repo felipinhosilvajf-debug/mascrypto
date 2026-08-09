@@ -1,31 +1,39 @@
-import { useCallback, useEffect, useState } from "react";
-import { Backpack, Box, Cat, Glasses, HardHat, MonitorCog, Shirt, Sparkles, Send, MessageSquare } from "lucide-react";
-import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc, query, limit, orderBy } from "firebase/firestore";
+/**
+ * Quarto Virtual 3D Isométrico
+ * ─────────────────────────────
+ * • Perspectiva isométrica real (piso em grid plano com perspectiva 3-D)
+ * • Móveis decorativos encaixam em tiles do piso
+ * • Slots de Hardware (GPU/periféricos) separados do menu RPG
+ * • Menu RPG = apenas roupas, chapéus, acessórios vestíveis e pets
+ * • Chat privado e temporário (sala = uid do dono; expira 5 min)
+ * • Presença multiplayer sincronizada via Firestore online_room
+ */
+import { useCallback, useEffect, useState, useRef } from "react";
+import { Backpack, Box, Cat, Glasses, HardHat, MonitorCog, Shirt, Sparkles, Send, Cpu, PlusCircle } from "lucide-react";
+import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc, query, limit, orderBy, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { AVATARES, SLOTS, STATUS_QUARTO, TEMAS } from "../lib/types";
+import { AVATARES, SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
 import { ArteItem, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
 import { cn } from "../utils/cn";
 
-const COLS = 9;
-const ROWS = 7;
-const TILE_W = 70;
-const TILE_H = 34;
-const CENTRO_X = 50;
-const CENTRO_Y = 10;
+/* ─── Constantes do grid isométrico ─── */
+const COLS = 8;
+const ROWS = 6;
 
-const slotIcone: Record<string, React.ComponentType<{ className?: string }>> = {
-  chapeu: HardHat,
-  oculos: Glasses,
-  camisa: Shirt,
-  calca: Sparkles,
-  sapato: Sparkles,
-  gpu: MonitorCog,
-  periferico: Box,
-  pet: Cat,
-};
+/** Converte coluna+linha para posição CSS em perspectiva isométrica. */
+function iso(x: number, y: number): { left: string; top: string } {
+  const TW = 72; // tile width
+  const TH = 38; // tile height (≈TW*0.53)
+  const OX = 50; // % de offset horizontal
+  const OY = 80; // px de offset vertical topo
+  return {
+    left: `calc(${OX}% + ${(x - y) * (TW / 2)}px)`,
+    top:  `${OY + (x + y) * (TH / 2)}px`,
+  };
+}
 
 interface JogadorOnline {
   uid: string;
@@ -37,481 +45,722 @@ interface JogadorOnline {
   lastMsgTs: number;
   status: string;
   nivel: number;
-  corPatente: string;
 }
 
-interface MensagemChat {
-  id: string;
+interface MsgQuarto {
   uid: string;
   nome: string;
   avatar: string;
   texto: string;
-  nivel: number;
-  badge: string;
-  corPatente: string;
   ts: number;
 }
 
-function iso(x: number, y: number) {
-  return {
-    left: `calc(${CENTRO_X}% + ${(x - y) * (TILE_W / 2)}px)`,
-    top: `${CENTRO_Y + (x + y) * (TILE_H / 2)}px`,
-  };
-}
+const SLOT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  chapeu: HardHat, oculos: Glasses, camisa: Shirt, calca: Sparkles, sapato: Box, pet: Cat,
+  gpu: MonitorCog, periferico: Cpu,
+};
 
-export default function VirtualRoomView() {
+/** TTL das mensagens do chat local (5 minutos). */
+const CHAT_TTL_MS = 5 * 60 * 1000;
+
+export default function VirtualRoomView({
+  hostId,
+  onSair,
+}: {
+  /** UID do dono do quarto. Se ausente ou igual ao usuário → Modo Anfitrião. */
+  hostId?: string;
+  /** Callback para voltar (exibido apenas no Modo Visitante). */
+  onSair?: () => void;
+} = {}) {
   const {
-    user,
-    data,
-    atualizar,
-    posicionarNoQuarto,
-    removerDoQuarto,
-    equipar,
-    desequipar,
-    hashrate,
-    detalheHash,
-    toast,
+    user, data, atualizar, posicionarNoQuarto, removerDoQuarto,
+    equipar, desequipar, hashrate, detalheHash, mover, toast,
   } = useApp();
   const { cfg } = useConfig();
+
   const [sel, setSel] = useState<string | null>(null);
   const [editar, setEditar] = useState(false);
-  const [nome, setNome] = useState(data?.nome || "");
-  const [abaLateral, setAbaLateral] = useState<"rpg" | "decoracao" | "chat">("rpg");
-
-  // Multiplayer states
+  const [nomeEdit, setNomeEdit] = useState(data?.nome || "");
+  const [abaLateral, setAbaLateral] = useState<"rpg" | "hardware" | "decoracao">("rpg");
   const [jogadores, setJogadores] = useState<JogadorOnline[]>([]);
-  const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
+  const [msgs, setMsgs] = useState<MsgQuarto[]>([]);
   const [textoChat, setTextoChat] = useState("");
-  const [enviandoChat, setEnviandoChat] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [anfitriao, setAnfitriao] = useState<UserData | null>(null);
+  const [posVisitante, setPosVisitante] = useState({ x: 1, y: 1 });
+  const fimChat = useRef<HTMLDivElement>(null);
 
-  const nivel = data ? nivelPorXp(data.xp) : 1;
-  const pat = patente(nivel);
-  const prog = data ? progressoNivel(data.xp) : { atual: 0, necessario: 100, pct: 0 };
-  const tema = data ? TEMAS.find((t) => t.id === data.tema) || TEMAS[0] : TEMAS[0];
+  /* ─── MODO: Anfitrião (próprio quarto) vs. Visitante (quarto de outro) ─── */
+  const ehVisitante = !!hostId && hostId !== user?.uid;
+  /** UID do dono da sala (host). No modo anfitrião é o próprio usuário. */
+  const donoId = ehVisitante ? hostId! : user?.uid || "";
+  /** Sala do chat local = uid do dono do quarto. */
+  const salaId = donoId;
+  /** Posição do avatar controlado: local no modo visitante, persistida no anfitrião. */
+  const minhaPos = ehVisitante ? posVisitante : data?.avatarPos ?? { x: 4, y: 3 };
 
-  const decorativos = cfg.itens.filter((i) => data?.itens.includes(i.id) && (i.decorativo || i.categoria === "movel"));
-  const naoPosicionados = data ? decorativos.filter((i) => !data.quarto[i.id]) : [];
-
-  /* ── Presença e Sincronização Multiplayer Isométrica ── */
+  // ── Carrega o estado do quarto do anfitrião (modo visitante) ──
   useEffect(() => {
-    if (!user || !data) return;
-    const pRef = doc(db, "online_room", user.uid);
+    if (!ehVisitante || !hostId) { setAnfitriao(null); return; }
+    const unsub = onSnapshot(
+      doc(db, "users", hostId),
+      (snap) => { if (snap.exists()) setAnfitriao(normalizar(snap.data() as Partial<UserData>, hostId)); },
+      () => {},
+    );
+    return unsub;
+  }, [ehVisitante, hostId]);
 
-    const registrarPresenca = async (pos = data.avatarPos, msg = "", msgTs = 0) => {
+  // ── Presença multiplayer: publica em qual sala o jogador está ──
+  useEffect(() => {
+    if (!user || !data || !donoId) return;
+    const pRef = doc(db, "online_room", user.uid);
+    const registrar = async () => {
       try {
         await setDoc(pRef, {
-          uid: user.uid,
-          nome: data.nome,
-          avatar: data.avatar,
-          avatarPos: pos,
-          equipados: data.equipados || {},
-          lastMsg: msg,
-          lastMsgTs: msgTs,
-          status: data.status,
+          uid: user.uid, nome: data.nome, avatar: data.avatar,
+          avatarPos: minhaPos, equipados: data.equipados || {},
+          lastMsg: "", lastMsgTs: 0, status: data.status,
           nivel: nivelPorXp(data.xp),
-          corPatente: patente(nivelPorXp(data.xp)).cor,
+          sala: donoId, // ← instância do quarto em que está
         } as JogadorOnline);
-      } catch {
-        /* silencia offline */
-      }
+      } catch { /* offline */ }
     };
+    registrar();
+    return () => { deleteDoc(pRef).catch(() => {}); };
+  }, [user, donoId, data?.nome, data?.avatar, data?.equipados, data?.status, data?.xp, minhaPos.x, minhaPos.y]); // eslint-disable-line
 
-    registrarPresenca();
-
-    // Mantém atualizado se o usuário mudar de avatar ou de roupas
-    registrarPresenca(data.avatarPos, data.lastMsg || "", data.lastMsgTs || 0);
-
-    return () => {
-      deleteDoc(pRef).catch(() => {});
-    };
-  }, [user, data?.nome, data?.avatar, data?.equipados, data?.status, data?.xp, data?.avatarPos]); // eslint-disable-line
-
-  /* ── Escuta outros jogadores no quarto/praça ── */
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "online_room"), (snap) => {
-      const lista: JogadorOnline[] = snap.docs.map((d) => d.data() as JogadorOnline);
-      setJogadores(lista);
-    });
+    const unsub = onSnapshot(collection(db, "online_room"),
+      (snap) => setJogadores(snap.docs.map((d) => d.data() as JogadorOnline)),
+      () => {}
+    );
     return unsub;
   }, []);
 
-  /* ── Escuta o Chat Global ── */
+  // ── Chat local temporário (TTL 5 min) ──
   useEffect(() => {
-    const q = query(collection(db, "chat_global"), orderBy("ts", "desc"), limit(40));
-    const unsub = onSnapshot(q, (snap) => {
-      const lista: MensagemChat[] = snap.docs.map((d) => d.data() as MensagemChat);
-      setMensagens(lista.reverse());
-    });
+    if (!salaId) return;
+    const q = query(
+      collection(db, "chat_quarto"),
+      where("sala", "==", salaId),
+      orderBy("ts", "desc"),
+      limit(40),
+    );
+    const filtrar = (docs: MsgQuarto[]) => {
+      const agora = Date.now();
+      return docs.filter((m) => agora - m.ts < CHAT_TTL_MS).reverse();
+    };
+    const unsub = onSnapshot(q,
+      (snap) => {
+        const brutos = snap.docs.map((d) => d.data() as MsgQuarto);
+        setMsgs(filtrar(brutos));
+        setTimeout(() => fimChat.current?.scrollIntoView({ behavior: "smooth" }), 60);
+        // Expurga do banco as mensagens vencidas desta sala
+        const agora = Date.now();
+        snap.docs
+          .filter((d) => agora - (d.data() as MsgQuarto).ts >= CHAT_TTL_MS)
+          .forEach((d) => deleteDoc(d.ref).catch(() => {}));
+      },
+      () => {}
+    );
     return unsub;
+  }, [salaId]);
+
+  /* Varredura periódica: remove da tela mensagens que passaram do TTL. */
+  useEffect(() => {
+    const i = setInterval(() => {
+      const agora = Date.now();
+      setMsgs((atual) => atual.filter((m) => agora - m.ts < CHAT_TTL_MS));
+    }, 15000);
+    return () => clearInterval(i);
   }, []);
 
+  // ── Movimento (anfitrião persiste no banco; visitante move localmente) ──
   const moverAvatar = useCallback(
-    async (x: number, y: number) => {
-      if (!data || !user) return;
+    (x: number, y: number) => {
+      const fonte = ehVisitante ? anfitriao : data;
+      if (!fonte) return;
       const nx = Math.max(0, Math.min(COLS - 1, x));
       const ny = Math.max(0, Math.min(ROWS - 1, y));
-
-      // Colisão: impede de andar por cima de móveis já posicionados
-      const ocupado = Object.entries(data.quarto).some(([, p]) => p.x === nx && p.y === ny);
+      // colisão com os móveis do quarto que está sendo exibido
+      const ocupado = Object.values(fonte.quarto || {}).some((p) => p.x === nx && p.y === ny);
       if (ocupado) return;
-
-      atualizar((d) => ({ ...d, avatarPos: { x: nx, y: ny } }));
+      if (ehVisitante) setPosVisitante({ x: nx, y: ny });
+      else atualizar((d) => ({ ...d, avatarPos: { x: nx, y: ny } }));
     },
-    [atualizar, data, user],
+    [atualizar, data, ehVisitante, anfitriao],
   );
 
-  /* WASD/setas movem o avatar um tile por vez. */
   useEffect(() => {
     if (!data) return;
     const h = (e: KeyboardEvent) => {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
-      const { x, y } = data.avatarPos;
-      if (["ArrowUp", "w", "W"].includes(e.key)) moverAvatar(x, y - 1);
-      else if (["ArrowDown", "s", "S"].includes(e.key)) moverAvatar(x, y + 1);
-      else if (["ArrowLeft", "a", "A"].includes(e.key)) moverAvatar(x - 1, y);
-      else if (["ArrowRight", "d", "D"].includes(e.key)) moverAvatar(x + 1, y);
+      const { x, y } = ehVisitante ? posVisitante : data.avatarPos;
+      if (["ArrowUp",    "w","W"].includes(e.key)) moverAvatar(x,     y - 1);
+      else if (["ArrowDown", "s","S"].includes(e.key)) moverAvatar(x,     y + 1);
+      else if (["ArrowLeft", "a","A"].includes(e.key)) moverAvatar(x - 1, y    );
+      else if (["ArrowRight","d","D"].includes(e.key)) moverAvatar(x + 1, y    );
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [data, moverAvatar]);
+  }, [data, moverAvatar, ehVisitante, posVisitante]);
 
   if (!data || !user) return null;
+  /* No modo visitante aguardamos carregar o quarto do anfitrião. */
+  if (ehVisitante && !anfitriao)
+    return (
+      <Card className="py-16 text-center">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-fuchsia-500/30 border-t-fuchsia-500" />
+        <p className="mt-3 text-sm text-slate-400">Entrando no quarto…</p>
+      </Card>
+    );
+
+  /** Fonte de verdade visual do quarto (anfitrião quando visitando). */
+  const sala = (ehVisitante ? anfitriao! : data);
+
+  const nivel = nivelPorXp(data.xp);
+  const pat = patente(nivel);
+  const prog = progressoNivel(data.xp);
+  const tema = TEMAS.find((t) => t.id === sala.tema) || TEMAS[0];
+
+  // itens decorativos do inventário (apenas anfitrião edita)
+  const decorativos = cfg.itens.filter((i) => data.itens.includes(i.id) && (i.decorativo || i.categoria === "movel"));
+  const naoPosicionados = decorativos.filter((i) => !data.quarto[i.id]);
+
+  // hardware posicionável em slots (geram H/s)
+  const hardwareDisponivel = cfg.itens.filter(
+    (i) => data.itens.includes(i.id) && (i.categoria === "gpu" || i.categoria === "periferico")
+  );
+
+  const slotsOcupados = Object.keys(data.slotsHardware || {}).length;
+  const limiteSlots = Math.min(
+    data.capacidadeSlotsHardware || 4,
+    cfg.limiteSlotHardwareGlobal || 16,
+  );
+  const custoSlot = cfg.custoSlotHardware || 5000;
 
   const enviarChat = async () => {
-    if (!textoChat.trim() || enviandoChat) return;
-    setEnviandoChat(true);
-    const texto = textoChat.trim();
+    const t = textoChat.trim();
+    if (!t || enviando) return;
+    setEnviando(true);
     try {
-      // 1. Envia para o chat global de rolagem
-      await addDoc(collection(db, "chat_global"), {
-        uid: user.uid,
-        nome: data.nome,
-        avatar: data.avatar,
-        texto,
-        nivel,
-        badge: pat.emoji + " " + pat.nome,
-        corPatente: pat.cor,
-        ts: Date.now(),
-      } as MensagemChat);
-
-      // 2. Atualiza a mensagem na cabeça do personagem (multiplayer bubble)
-      const pRef = doc(db, "online_room", user.uid);
-      await setDoc(pRef, {
-        uid: user.uid,
-        nome: data.nome,
-        avatar: data.avatar,
-        avatarPos: data.avatarPos,
-        equipados: data.equipados || {},
-        lastMsg: texto,
-        lastMsgTs: Date.now(),
-        status: data.status,
-        nivel,
-        corPatente: pat.cor,
-      } as JogadorOnline);
-
+      await addDoc(collection(db, "chat_quarto"), {
+        uid: user.uid, nome: data.nome, avatar: data.avatar,
+        texto: t.slice(0, 200), sala: salaId, ts: Date.now(),
+      });
       setTextoChat("");
-    } catch {
-      toast("Falha ao enviar mensagem", "erro");
-    } finally {
-      setEnviandoChat(false);
-    }
+    } catch { toast("Falha ao enviar mensagem", "erro"); }
+    finally { setEnviando(false); }
   };
 
   const clicarTile = (x: number, y: number) => {
+    // Visitantes só andam — móveis são estáticos (sem permissão de edição)
+    if (ehVisitante) { moverAvatar(x, y); return; }
     const itemAqui = Object.entries(data.quarto).find(([, p]) => p.x === x && p.y === y);
-    if (sel && !itemAqui) {
-      posicionarNoQuarto(sel, x, y);
-      setSel(null);
-      return;
-    }
+    if (sel && !itemAqui) { posicionarNoQuarto(sel, x, y); setSel(null); return; }
     moverAvatar(x, y);
+  };
+
+  const adicionarSlotHardware = () => {
+    if (slotsOcupados >= limiteSlots && limiteSlots > 0) {
+      if (limiteSlots >= (cfg.limiteSlotHardwareGlobal || 16))
+        return toast(`Limite global de ${cfg.limiteSlotHardwareGlobal} slots atingido`, "erro");
+    }
+    if (data.capacidadeSlotsHardware >= limiteSlots) {
+      if (!mover({ mas: -custoSlot, titulo: "Compra de slot", detalhe: `+1 slot de hardware` }))
+        return;
+      atualizar((d) => ({ ...d, capacidadeSlotsHardware: (d.capacidadeSlotsHardware || 4) + 1 }));
+      toast(`Slot de hardware desbloqueado por ${fmtMAS(custoSlot)} ✅`, "ok");
+    }
+  };
+
+  const equiparHardware = (itemId: string) => {
+    if (slotsOcupados >= (data.capacidadeSlotsHardware || 4))
+      return toast(`Sem slots livres — compre mais (${fmtMAS(custoSlot)} por slot)`, "erro");
+    atualizar((d) => ({
+      ...d,
+      slotsHardware: { ...d.slotsHardware, [itemId]: slotsOcupados },
+    }));
+    toast("Hardware instalado no quarto", "ok");
+  };
+
+  const removerHardware = (itemId: string) => {
+    atualizar((d) => {
+      const sh = { ...d.slotsHardware };
+      delete sh[itemId];
+      return { ...d, slotsHardware: sh };
+    });
   };
 
   return (
     <div className="space-y-4">
+      {/* ── Cabeçalho: Nome // Status ── */}
       <Card glow className="flex flex-wrap items-center justify-between gap-4 py-4">
         <div className="flex min-w-0 items-center gap-4">
           <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-[conic-gradient(from_180deg,rgba(217,70,239,.5),rgba(56,189,248,.4),rgba(217,70,239,.5))] text-4xl shadow-[0_0_25px_-8px_rgba(217,70,239,.9)]">
-            {data.avatar}
-            <span className="absolute -bottom-1.5 -right-1.5 rounded-lg bg-slate-950 px-1.5 py-0.5 text-[10px] font-black text-fuchsia-300 ring-1 ring-fuchsia-500/40">Nv {nivel}</span>
+            {sala.avatar}
+            <span className="absolute -bottom-1.5 -right-1.5 rounded-lg bg-slate-950 px-1.5 py-0.5 text-[10px] font-black text-fuchsia-300 ring-1 ring-fuchsia-500/40">
+              Nv {nivelPorXp(sala.xp)}
+            </span>
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-xl font-black text-white sm:text-2xl">
-              {data.nome} <span className="text-slate-600">//</span>{" "}
-              <span className="bg-gradient-to-r from-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">{data.status}</span>
+              {ehVisitante ? `Quarto de ${sala.nome}` : sala.nome} <span className="text-slate-600">//</span>{" "}
+              <span className="bg-gradient-to-r from-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">{sala.status}</span>
             </h2>
-            <p className={`text-xs font-bold ${pat.cor}`}>{pat.emoji} {pat.nome} · use WASD/setas ou clique no piso para andar</p>
+            <p className={`text-xs font-bold ${pat.cor}`}>
+              {ehVisitante
+                ? "👋 Modo visitante · móveis são somente leitura"
+                : `${pat.emoji} ${pat.nome} · WASD/setas para andar · você é o anfitrião`}
+            </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Selo tom="verde">● {jogadores.length} Online</Selo>
-          <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar</Botao>
+        <div className="flex flex-wrap gap-2">
+          <Selo tom={ehVisitante ? "ciano" : "verde"}>
+            {ehVisitante ? "👀 Visitante" : "🏠 Anfitrião"}
+          </Selo>
+          <Selo tom="verde">
+            ● {jogadores.filter((j) => (j as any).sala === donoId).length} na sala
+          </Selo>
+          {ehVisitante ? (
+            <Botao variante="ghost" onClick={onSair}>← Sair do quarto</Botao>
+          ) : (
+            <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar</Botao>
+          )}
         </div>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        {/* ---------------- AMBIENTE ISOMÉTRICO MULTIPLAYER ---------------- */}
+        {/* ── QUARTO ISOMÉTRICO ── */}
         <Card className="overflow-hidden p-0">
-          <div className={`relative h-[530px] overflow-hidden bg-gradient-to-b ${tema.classe}`}>
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(255,255,255,.15),transparent_55%)]" />
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-36 border-b border-white/10 bg-black/20 [clip-path:polygon(0_0,100%_0,90%_100%,10%_100%)]" />
+          <div className={`relative overflow-hidden bg-gradient-to-b ${tema.classe}`}
+               style={{ height: `${80 + (COLS + ROWS) * 20}px`, minHeight: "440px" }}>
+            {/* Luz ambiente */}
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_10%,rgba(255,255,255,.13),transparent_60%)]" />
+            {/* "Parede" do fundo */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 border-b border-white/10 bg-black/25 [clip-path:polygon(0_0,100%_0,88%_100%,12%_100%)]" />
 
-            {/* Prateleiras da parede exibem itens equipados/armazenados. */}
-            <div className="absolute left-1/2 top-7 flex -translate-x-1/2 gap-3">
-              {SLOTS.slice(0, 6).map((s) => {
-                const it = cfg.itens.find((i) => i.id === data.equipados[s.id]);
+            {/* Prateleiras de items equipados no topo (do dono da sala) */}
+            <div className="absolute left-1/2 top-4 flex -translate-x-1/2 gap-2">
+              {SLOTS_RPG.slice(0, 5).map((s) => {
+                const it = cfg.itens.find((i) => i.id === sala.equipados[s.id]);
                 return (
-                  <div key={s.id} className="flex h-14 w-14 flex-col items-center justify-center border-b-4 border-fuchsia-950 bg-black/25 shadow-[0_8px_12px_-8px_black]">
-                    {it ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-2xl" className="h-7 w-7" /> : <span className="text-[9px] text-white/25">{s.nome}</span>}
+                  <div key={s.id}
+                    className="flex h-12 w-12 flex-col items-center justify-center border-b-4 border-fuchsia-950/70 bg-black/30 shadow-[0_8px_16px_-6px_rgba(0,0,0,.8)]">
+                    {it
+                      ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-2xl" className="h-7 w-7" />
+                      : <span className="text-[8px] text-white/20">{s.nome}</span>}
                   </div>
                 );
               })}
             </div>
 
-            {/* Piso: projeção isométrica real por coordenadas. */}
-            <div className="absolute inset-0 top-28">
-              {Array.from({ length: COLS * ROWS }, (_, i) => {
-                const x = i % COLS;
-                const y = Math.floor(i / COLS);
-                const item = Object.entries(data.quarto).find(([, p]) => p.x === x && p.y === y);
+            {/* GRID ISOMÉTRICO ─ piso plano */}
+            <div className="absolute inset-0 overflow-hidden" style={{ top: "60px" }}>
+              {Array.from({ length: COLS * ROWS }, (_, idx) => {
+                const x = idx % COLS;
+                const y = Math.floor(idx / COLS);
+                const item = Object.entries(sala.quarto).find(([, p]) => p.x === x && p.y === y);
                 return (
                   <button
-                    key={i}
+                    key={idx}
                     onClick={() => clicarTile(x, y)}
-                    className={`absolute h-[34px] w-[70px] -translate-x-1/2 origin-center rotate-[30deg] skew-y-[-15deg] border transition-all duration-200 ${
-                      sel && !item ? "border-fuchsia-300/60 bg-fuchsia-500/20 hover:bg-fuchsia-400/40" : "border-white/[0.12] bg-slate-900/45 hover:bg-cyan-500/20"
-                    }`}
-                    style={iso(x, y)}
-                    aria-label={`Mover para ${x}, ${y}`}
+                    aria-label={`Tile ${x},${y}`}
+                    className={cn(
+                      /* tile isométrico: lozenge rotacionado */
+                      "absolute w-[72px] h-[38px] -translate-x-1/2 -translate-y-1/2",
+                      "border transition-all duration-150",
+                      "[clip-path:polygon(50%_0%,100%_50%,50%_100%,0%_50%)]",
+                      sel && !item && !ehVisitante
+                        ? "border-fuchsia-300/70 bg-fuchsia-500/25 hover:bg-fuchsia-400/40"
+                        : "border-white/[0.15] bg-slate-800/50 hover:bg-cyan-500/20",
+                    )}
+                    style={{ ...iso(x, y) }}
                   />
                 );
               })}
 
-              {/* Móveis e itens no plano isométrico. */}
-              {Object.entries(data.quarto).map(([id, p]) => {
+              {/* Móveis do quarto (estáticos para visitantes) */}
+              {Object.entries(sala.quarto).map(([id, p]) => {
                 const it = cfg.itens.find((i) => i.id === id);
                 if (!it) return null;
+                const pos = iso(p.x, p.y);
                 return (
                   <button
                     key={id}
-                    onClick={() => removerDoQuarto(id)}
-                    title={`${it.nome} · clique para guardar`}
-                    className="absolute z-20 flex h-14 w-14 -translate-x-1/2 -translate-y-8 items-center justify-center text-4xl drop-shadow-[0_12px_8px_rgba(0,0,0,.8)] transition hover:-translate-y-10 hover:scale-110"
-                    style={iso(p.x, p.y)}
+                    onClick={() => { if (!ehVisitante) removerDoQuarto(id); }}
+                    disabled={ehVisitante}
+                    title={ehVisitante ? it.nome : `${it.nome} · clique para guardar`}
+                    className={cn(
+                      "absolute z-20 flex h-14 w-14 -translate-x-1/2 -translate-y-full items-end justify-center text-4xl drop-shadow-[0_14px_8px_rgba(0,0,0,.85)] transition",
+                      !ehVisitante && "hover:-translate-y-[110%] hover:scale-110",
+                      ehVisitante && "cursor-default",
+                    )}
+                    style={pos}
                   >
                     <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-4xl" className="h-12 w-12" />
                   </button>
                 );
               })}
 
-              {/* OUTROS JOGADORES ONLINE (Isométrico em Tempo Real) */}
-              {jogadores
-                .filter((p) => p.uid !== user.uid)
-                .map((p) => {
-                  const itemChapeu = cfg.itens.find((i) => i.id === p.equipados?.chapeu);
-                  const itemPet = cfg.itens.find((i) => i.id === p.equipados?.pet);
-                  const mostraBubble = p.lastMsg && Date.now() - p.lastMsgTs < 6000;
-
-                  return (
-                    <div
-                      key={p.uid}
-                      className="pointer-events-none absolute z-25 flex -translate-x-1/2 -translate-y-10 flex-col items-center transition-all duration-300 ease-out"
-                      style={iso(p.avatarPos.x, p.avatarPos.y)}
-                    >
-                      {/* Balão de fala */}
-                      {mostraBubble && (
-                        <div className="absolute -top-16 mb-2 max-w-[140px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-white px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-xl after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-white">
-                          <p className="line-clamp-3 leading-tight">{p.lastMsg}</p>
-                        </div>
-                      )}
-                      <div className="relative text-5xl drop-shadow-[0_12px_8px_rgba(0,0,0,.8)]">
-                        {p.avatar}
-                        {itemChapeu && <span className="absolute -right-3 -top-3 text-xl">{itemChapeu.emoji}</span>}
-                        {itemPet && <span className="absolute -right-7 bottom-0 text-2xl">{itemPet.emoji}</span>}
+              {/* Outros jogadores presentes NESTA sala */}
+              {jogadores.filter((j) => j.uid !== user.uid && (j as any).sala === donoId).map((j) => {
+                const pos = iso(j.avatarPos.x, j.avatarPos.y);
+                const mostra = j.lastMsg && Date.now() - j.lastMsgTs < 6000;
+                const chapItem = cfg.itens.find((i) => i.id === j.equipados?.chapeu);
+                return (
+                  <div key={j.uid}
+                    className="pointer-events-none absolute z-25 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-all duration-300 ease-out"
+                    style={pos}>
+                    {mostra && (
+                      <div className="absolute -top-12 mb-1 max-w-[120px] rounded-xl bg-white px-2 py-1 text-[11px] font-bold text-slate-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-white">
+                        <p className="line-clamp-2">{j.lastMsg}</p>
                       </div>
-                      <p className="rounded-full bg-black/65 px-2 py-0.5 text-[8px] font-black text-white">
-                        {p.nome} · Nv {p.nivel}
-                      </p>
-                      <span className="mt-1 h-1.5 w-8 rounded-full bg-black/30 blur-[1px]" />
+                    )}
+                    <div className="relative text-4xl drop-shadow-[0_10px_6px_rgba(0,0,0,.8)]">
+                      {j.avatar}
+                      {chapItem && <span className="absolute -right-2 -top-2 text-base">{chapItem.emoji}</span>}
                     </div>
-                  );
-                })}
+                    <p className="rounded-full bg-black/65 px-2 py-0.5 text-[8px] font-black text-white">{j.nome}</p>
+                    <span className="mt-0.5 h-1.5 w-8 rounded-full bg-black/30 blur-[1px]" />
+                  </div>
+                );
+              })}
 
-              {/* O PROPRIO AVATAR */}
+              {/* Avatar do usuário */}
               <div
-                className="pointer-events-none absolute z-30 flex -translate-x-1/2 -translate-y-10 flex-col items-center transition-all duration-200 ease-out"
-                style={iso(data.avatarPos.x, data.avatarPos.y)}
-              >
-                {/* Balão do próprio chat */}
+                className="pointer-events-none absolute z-30 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-all duration-200 ease-out"
+                style={iso(minhaPos.x, minhaPos.y)}>
                 {data.lastMsg && Date.now() - (data.lastMsgTs || 0) < 6000 && (
-                  <div className="absolute -top-16 mb-2 max-w-[140px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-fuchsia-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-xl after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-fuchsia-600">
-                    <p className="line-clamp-3 leading-tight">{data.lastMsg}</p>
+                  <div className="absolute -top-12 mb-1 max-w-[120px] rounded-xl bg-fuchsia-600 px-2 py-1 text-[11px] font-bold text-white shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-fuchsia-600">
+                    <p className="line-clamp-2">{data.lastMsg}</p>
                   </div>
                 )}
-                <div className="relative text-5xl drop-shadow-[0_12px_8px_rgba(0,0,0,.9)]">
+                <div className="relative text-4xl drop-shadow-[0_10px_8px_rgba(0,0,0,.9)]">
                   {data.avatar}
-                  {data.equipados.chapeu && <span className="absolute -right-3 -top-3 text-xl">{cfg.itens.find((i) => i.id === data.equipados.chapeu)?.emoji}</span>}
-                  {data.equipados.pet && <span className="absolute -right-7 bottom-0 text-2xl">{cfg.itens.find((i) => i.id === data.equipados.pet)?.emoji}</span>}
+                  {data.equipados.chapeu && <span className="absolute -right-2 -top-2 text-base">{cfg.itens.find((i) => i.id === data.equipados.chapeu)?.emoji}</span>}
+                  {data.equipados.pet && <span className="absolute -right-6 bottom-0 text-xl">{cfg.itens.find((i) => i.id === data.equipados.pet)?.emoji}</span>}
                 </div>
-                <p className="rounded-full bg-fuchsia-600 px-2.5 py-0.5 text-[9px] font-black text-white shadow-[0_0_15px_rgba(217,70,239,0.5)]">
-                  {data.nome} (Você)
-                </p>
-                <span className="mt-1 h-2 w-10 rounded-full bg-black/40 blur-[2px]" />
+                <p className="rounded-full bg-fuchsia-600 px-2.5 py-0.5 text-[9px] font-black text-white shadow-[0_0_14px_rgba(217,70,239,.5)]">{data.nome}</p>
+                <span className="mt-0.5 h-2 w-10 rounded-full bg-black/40 blur-[2px]" />
               </div>
             </div>
 
-            <div className="absolute bottom-3 left-3 rounded-xl border border-white/10 bg-black/55 px-3 py-2 text-[10px] text-slate-300 backdrop-blur">
-              {sel ? "Selecione um tile livre para posicionar o móvel" : "Clique no piso para andar · use o chat para falar em tempo real"}
+            <div className="absolute bottom-3 left-3 rounded-xl border border-white/10 bg-black/55 px-3 py-1.5 text-[10px] text-slate-300 backdrop-blur">
+              {ehVisitante
+                ? "👀 Visitante · você pode andar e conversar, mas não editar o quarto"
+                : sel
+                  ? "Clique num tile livre para posicionar"
+                  : "WASD/setas para mover · clique no tile para andar"}
             </div>
           </div>
 
-          <div className="border-t border-white/10 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Móveis na mochila ({naoPosicionados.length})</p>
-              {sel && <button onClick={() => setSel(null)} className="text-[10px] font-bold text-rose-300">cancelar posicionamento</button>}
+          {/* Inventário decorativo — somente o anfitrião edita */}
+          {!ehVisitante && (
+            <div className="border-t border-white/10 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Móveis ({naoPosicionados.length} na mochila)
+                </p>
+                {sel && <button onClick={() => setSel(null)} className="text-[10px] font-bold text-rose-300">✕ cancelar</button>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {naoPosicionados.length === 0 && <p className="text-xs text-slate-500">Todos os móveis estão posicionados.</p>}
+                {naoPosicionados.map((i) => (
+                  <button key={i.id} onClick={() => setSel(sel === i.id ? null : i.id)} title={i.nome}
+                    className={cn("flex h-12 w-12 items-center justify-center rounded-xl border transition",
+                      sel === i.id ? "scale-110 border-fuchsia-400 bg-fuchsia-500/25" : "border-white/10 bg-white/5 hover:border-fuchsia-400/50")}>
+                    <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-2xl" className="h-7 w-7" />
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {naoPosicionados.length === 0 && <p className="text-xs text-slate-500">Todos os móveis estão no quarto. Compre mais na Loja.</p>}
-              {naoPosicionados.map((i) => (
-                <button key={i.id} onClick={() => setSel(sel === i.id ? null : i.id)} title={i.nome} className={`flex h-12 w-12 items-center justify-center rounded-xl border transition ${sel === i.id ? "scale-110 border-fuchsia-400 bg-fuchsia-500/25" : "border-white/10 bg-white/5 hover:border-fuchsia-400/50"}`}>
-                  <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-2xl" className="h-7 w-7" />
-                </button>
+          )}
+
+          {/* Chat privado temporário */}
+          <div className="border-t border-white/10 px-4 pb-4 pt-3">
+            <p className="mb-2 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-fuchsia-300/70">
+              <span>💬</span> Chat do quarto · mensagens expiram em 5 min
+            </p>
+            <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+              {msgs.map((m, i) => (
+                <div key={i} className={cn("flex gap-1.5", m.uid === user.uid && "flex-row-reverse")}>
+                  <span className="shrink-0 text-xl">{m.avatar}</span>
+                  <div className={cn("max-w-[75%] rounded-xl px-2.5 py-1 text-[11px]",
+                    m.uid === user.uid ? "bg-fuchsia-600/30 text-fuchsia-50" : "bg-white/[0.07] text-slate-200")}>
+                    <b className="block text-[9px] font-black uppercase text-slate-400">{m.uid === user.uid ? "Você" : m.nome}</b>
+                    {m.texto}
+                  </div>
+                </div>
               ))}
+              <div ref={fimChat} />
+            </div>
+            <div className="mt-2 flex gap-1.5">
+              <Input placeholder="Falar no quarto..." value={textoChat} maxLength={200}
+                onChange={(e) => setTextoChat(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && enviarChat()}
+                className="py-1.5 text-xs" />
+              <button onClick={enviarChat} disabled={!textoChat.trim() || enviando}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-fuchsia-600 text-white transition hover:bg-fuchsia-500 active:scale-95 disabled:opacity-40">
+                <Send className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </Card>
 
-        {/* ---------------- PAINEL SOCIAL E EQUIPAMENTOS RPG ---------------- */}
+        {/* ── PAINEL LATERAL ── */}
         <div className="space-y-3">
-          <div className="flex rounded-xl bg-white/5 p-1">
-            {(["rpg", "decoracao", "chat"] as const).map((a) => (
-              <button
-                key={a}
-                onClick={() => setAbaLateral(a)}
-                className={cn(
-                  "flex-1 rounded-lg py-2 text-xs font-black transition",
-                  abaLateral === a ? "bg-fuchsia-600/30 text-white" : "text-slate-500"
-                )}
-              >
-                {a === "rpg" ? "RPG" : a === "decoracao" ? "Mochila" : "Chat Geral"}
+          {ehVisitante && (
+            <Card className="border-cyan-500/25 bg-cyan-500/[0.06] p-4">
+              <p className="text-sm font-black text-white">👀 Você está visitando</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Este é o quarto de <b className="text-cyan-300">{sala.nome}</b>. Os móveis e decorações
+                pertencem ao anfitrião e não podem ser editados. Use o chat local para conversar com quem
+                está na sala.
+              </p>
+              <Botao variante="ghost" className="mt-3 w-full" onClick={onSair}>
+                ← Voltar ao meu quarto
+              </Botao>
+            </Card>
+          )}
+
+          {/* Abas separadas: RPG | Hardware | Decoração — apenas anfitrião */}
+          {!ehVisitante && (
+          <div className="flex gap-1 rounded-xl bg-white/5 p-1">
+            {([
+              ["rpg",       "Avatar RPG"],
+              ["hardware",  "Hardware"],
+              ["decoracao", "Mochila"],
+            ] as const).map(([id, nome]) => (
+              <button key={id} onClick={() => setAbaLateral(id)}
+                className={cn("flex-1 rounded-lg py-2 text-[11px] font-black transition",
+                  abaLateral === id ? "bg-fuchsia-600/35 text-white" : "text-slate-500 hover:text-white")}>
+                {nome}
               </button>
             ))}
           </div>
+          )}
 
-          {abaLateral === "rpg" ? (
+          {/* ── ABA RPG (só roupas/acessórios/pets) ── */}
+          {!ehVisitante && abaLateral === "rpg" && (
             <Card className="p-4">
               <div className="mb-4 text-center">
-                <div className="relative mx-auto flex h-24 w-24 items-center justify-center rounded-full border-2 border-fuchsia-400/40 bg-[radial-gradient(circle,rgba(217,70,239,.25),transparent_70%)] text-6xl shadow-[0_0_35px_-10px_rgba(217,70,239,.9)]">{data.avatar}</div>
-                <p className="mt-2 font-black text-white">{data.nome}</p>
-                <p className={`text-[11px] font-bold ${pat.cor}`}>{pat.emoji} {pat.nome} · Nv {nivel}</p>
+                <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-fuchsia-400/40 bg-[radial-gradient(circle,rgba(217,70,239,.2),transparent_70%)] text-5xl shadow-[0_0_30px_-10px_rgba(217,70,239,.8)]">{data.avatar}</div>
+                <p className="mt-1 font-black text-white">{data.nome}</p>
+                <p className={cn("text-[11px] font-bold", pat.cor)}>{pat.emoji} {pat.nome} · Nv {nivel}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {SLOTS.map((s) => {
+                {SLOTS_RPG.map((s) => {
                   const it = cfg.itens.find((i) => i.id === data.equipados[s.id]);
-                  const Icone = slotIcone[s.id] || Backpack;
+                  const Icone = SLOT_ICONS[s.id] || Backpack;
                   return (
-                    <div key={s.id} className={`relative rounded-2xl border p-2.5 ${it ? "border-fuchsia-400/35 bg-fuchsia-500/[0.08]" : "border-white/10 bg-black/20"}`}>
+                    <div key={s.id}
+                      className={cn("relative rounded-2xl border p-2.5",
+                        it ? "border-fuchsia-400/35 bg-fuchsia-500/[0.08]" : "border-white/10 bg-black/20")}>
                       <div className="flex items-center gap-2">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/35">
-                          {it ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-2xl" className="h-7 w-7" /> : <Icone className="h-5 w-5 text-slate-600" />}
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/35">
+                          {it
+                            ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-xl" className="h-6 w-6" />
+                            : <Icone className="h-4 w-4 text-slate-600" />}
                         </div>
-                        <div className="min-w-0 flex-1"><p className="text-[9px] font-bold uppercase text-slate-500">{s.nome}</p><p className="truncate text-[11px] font-black text-white">{it?.nome || "Vazio"}</p></div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[9px] font-bold uppercase text-slate-500">{s.nome}</p>
+                          <p className="truncate text-[11px] font-black text-white">{it?.nome || "Vazio"}</p>
+                        </div>
                       </div>
                       {it && <button onClick={() => desequipar(s.id)} className="absolute right-1 top-1 text-[9px] text-rose-300">×</button>}
                     </div>
                   );
                 })}
               </div>
-              <div className="mt-3 rounded-xl bg-black/30 p-3 text-xs">
-                <div className="flex justify-between"><span className="text-slate-500">Poder de mineração</span><b className="text-cyan-300">{fmtHS(hashrate)}</b></div>
-                <div className="mt-1 flex justify-between"><span className="text-slate-500">Bônus equipado</span><b className="text-emerald-300">+{Math.round(detalheHash.bonusPct * 100)}%</b></div>
-              </div>
-            </Card>
-          ) : abaLateral === "decoracao" ? (
-            <Card className="p-4">
-              <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Equipamentos e Acessórios</p>
-              <div className="max-h-[350px] space-y-2 overflow-y-auto pr-1">
-                {cfg.itens.filter((i) => data.itens.includes(i.id) && i.slot).map((i) => {
-                  const equipado = Object.values(data.equipados).includes(i.id);
+              {/* Itens equipáveis (RPG) do inventário */}
+              <div className="mt-3 max-h-[200px] space-y-1 overflow-y-auto">
+                {cfg.itens.filter((i) => data.itens.includes(i.id) && SLOTS_RPG.some((s) => s.id === i.slot)).map((i) => {
+                  const eq = Object.values(data.equipados).includes(i.id);
                   return (
                     <div key={i.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-2xl" className="h-8 w-8" />
-                      <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-white">{i.nome}</p><p className="text-[10px] text-slate-500">{i.slot}{i.hs > 0 ? ` · ${fmtHS(i.hs)}` : ""}</p></div>
-                      <Botao variante={equipado ? "ghost" : "sucesso"} className="px-2 py-1 text-[10px]" disabled={equipado} onClick={() => equipar(i.id)}>{equipado ? "Equipado" : "Equipar"}</Botao>
+                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-xl" className="h-7 w-7" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-bold text-white">{i.nome}</p>
+                        <p className="text-[9px] text-slate-500">{i.slot}</p>
+                      </div>
+                      <Botao variante={eq ? "ghost" : "sucesso"} disabled={eq} className="px-2 py-1 text-[10px]"
+                        onClick={() => equipar(i.id)}>{eq ? "Equipado" : "Equipar"}</Botao>
                     </div>
                   );
                 })}
               </div>
             </Card>
-          ) : (
-            /* ── CHAT EM TEMPO REAL ── */
-            <Card className="p-4 flex flex-col h-[420px]">
-              <div className="flex items-center gap-1.5 mb-3 border-b border-white/5 pb-2">
-                <MessageSquare className="h-4 w-4 text-fuchsia-400" />
-                <h4 className="text-xs font-black text-white uppercase tracking-wider">Chat Geral MAS</h4>
-              </div>
-              
-              {/* Lista de mensagens */}
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1 text-xs mb-3 scrollbar-thin">
-                {mensagens.length === 0 ? (
-                  <p className="text-slate-500 text-center py-10">Envie a primeira mensagem! 🌌</p>
-                ) : (
-                  mensagens.map((m) => (
-                    <div key={m.id} className="flex items-start gap-2">
-                      <span className="text-xl shrink-0">{m.avatar}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-baseline gap-x-1.5">
-                          <span className="font-bold text-white text-[11px] truncate">{m.nome}</span>
-                          <span className={cn("text-[9px] font-black uppercase rounded bg-white/5 px-1", m.corPatente)}>
-                            {m.badge} · Nv {m.nivel}
-                          </span>
-                        </div>
-                        <p className="text-slate-300 mt-0.5 break-words bg-white/[0.02] p-1.5 rounded-lg border border-white/[0.04]">
-                          {m.texto}
-                        </p>
-                      </div>
-                    </div>
-                  ))
+          )}
+
+          {/* ── ABA HARDWARE (GPUs/periféricos nos slots do quarto) ── */}
+          {!ehVisitante && abaLateral === "hardware" && (
+            <Card className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-white">Slots de Hardware</h3>
+                  <p className="text-[11px] text-slate-400">
+                    {slotsOcupados}/{data.capacidadeSlotsHardware || 4} slots usados · Hashrate extra: {fmtHS(detalheHash.hardwareSlots)}
+                  </p>
+                </div>
+                {(data.capacidadeSlotsHardware || 4) < (cfg.limiteSlotHardwareGlobal || 16) && (
+                  <button onClick={adicionarSlotHardware}
+                    className="flex items-center gap-1 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1.5 text-[10px] font-black text-emerald-300 transition hover:bg-emerald-500/25">
+                    <PlusCircle className="h-3.5 w-3.5" /> +1 slot<br />
+                    <span className="text-[8px] text-slate-400">{fmtMAS(custoSlot)}</span>
+                  </button>
                 )}
               </div>
 
-              {/* Input de envio */}
-              <div className="flex gap-1.5 mt-auto">
-                <Input
-                  placeholder="Escreva no chat..."
-                  value={textoChat}
-                  onChange={(e) => setTextoChat(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && enviarChat()}
-                  maxLength={120}
-                  className="py-1.5 text-xs flex-1"
-                />
-                <button
-                  onClick={enviarChat}
-                  disabled={!textoChat.trim() || enviandoChat}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl bg-fuchsia-600 text-white hover:bg-fuchsia-500 transition-all active:scale-95 disabled:opacity-40 shrink-0"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
+              {/* Slots visuais */}
+              <div className="grid grid-cols-2 gap-2">
+                {Array.from({ length: data.capacidadeSlotsHardware || 4 }, (_, idx) => {
+                  const itemId = Object.entries(data.slotsHardware || {}).find(([, v]) => v === idx)?.[0];
+                  const it = cfg.itens.find((i) => i.id === itemId);
+                  return (
+                    <div key={idx}
+                      className={cn("relative flex flex-col items-center rounded-2xl border p-3 text-center",
+                        it ? "border-cyan-400/40 bg-cyan-500/[0.08]" : "border-white/10 bg-black/20")}>
+                      <p className="mb-1 text-[8px] font-black uppercase text-slate-500">Slot {idx + 1}</p>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-black/40 text-3xl">
+                        {it
+                          ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-3xl" className="h-9 w-9" />
+                          : <MonitorCog className="h-6 w-6 text-slate-700" />}
+                      </div>
+                      <p className="mt-1 truncate text-[10px] font-bold text-white">{it?.nome || "Vazio"}</p>
+                      {it && <p className="text-[9px] text-cyan-300">{fmtHS(it.hs || 0)}</p>}
+                      {it && (
+                        <button onClick={() => removerHardware(it.id)}
+                          className="absolute right-1 top-1 text-[9px] font-black text-rose-300 hover:text-rose-100">×</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Hardware do inventário para instalar */}
+              <div className="mt-3 max-h-[220px] space-y-1 overflow-y-auto">
+                <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">Seus equipamentos</p>
+                {hardwareDisponivel.length === 0 && <p className="text-xs text-slate-500">Compre GPUs e periféricos na Loja.</p>}
+                {hardwareDisponivel.map((i) => {
+                  const instalado = !!(data.slotsHardware || {})[i.id] !== undefined && Object.keys(data.slotsHardware || {}).includes(i.id);
+                  return (
+                    <div key={i.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-xl" className="h-7 w-7" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-bold text-white">{i.nome}</p>
+                        <p className="text-[9px] text-cyan-300">{fmtHS(i.hs || 0)}</p>
+                      </div>
+                      <Botao variante={instalado ? "ghost" : "neon"} disabled={instalado || slotsOcupados >= (data.capacidadeSlotsHardware || 4)}
+                        className="px-2 py-1 text-[10px]" onClick={() => equiparHardware(i.id)}>
+                        {instalado ? "✓ Instalado" : "Instalar"}
+                      </Botao>
+                    </div>
+                  );
+                })}
               </div>
             </Card>
           )}
 
+          {/* ── ABA DECORAÇÃO ── */}
+          {!ehVisitante && abaLateral === "decoracao" && (
+            <Card className="p-4">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mochila de decoração</p>
+              <div className="max-h-[380px] space-y-2 overflow-y-auto pr-1">
+                {decorativos.length === 0 && <p className="text-xs text-slate-500">Compre móveis na Loja para decorar seu quarto.</p>}
+                {decorativos.map((i) => {
+                  const posicionado = !!data.quarto[i.id];
+                  return (
+                    <div key={i.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-xl" className="h-7 w-7" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-bold text-white">{i.nome}</p>
+                        <p className="text-[9px] text-slate-500">{posicionado ? "No quarto" : "Na mochila"}</p>
+                      </div>
+                      {posicionado
+                        ? <Botao variante="ghost" className="px-2 py-1 text-[10px]" onClick={() => removerDoQuarto(i.id)}>Guardar</Botao>
+                        : <Botao variante="ghost" className="px-2 py-1 text-[10px]" onClick={() => { setSel(i.id); setAbaLateral("rpg"); }}>Posicionar</Botao>}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* Nível e saldo */}
           <Card className="p-4">
             <div className="flex justify-between text-xs"><span className="font-bold text-white">Nível {nivel}</span><span className="text-slate-500">{prog.atual}/{prog.necessario} XP</span></div>
-            <div className="mt-2"><Barra pct={prog.pct} /></div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-center"><div className="rounded-xl bg-white/5 p-2"><p className="text-[9px] uppercase text-slate-500">Saldo</p><p className="text-xs font-black text-emerald-300">{fmtMAS(data.saldo)}</p></div><div className="rounded-xl bg-white/5 p-2"><p className="text-[9px] uppercase text-slate-500">Posição</p><p className="text-xs font-black text-white">{data.avatarPos.x}, {data.avatarPos.y}</p></div></div>
+            <div className="mt-1.5"><Barra pct={prog.pct} /></div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-[11px]">
+              <div className="rounded-xl bg-white/5 p-2"><p className="text-slate-500">Saldo</p><p className="font-black text-emerald-300">{fmtMAS(data.saldo)}</p></div>
+              <div className="rounded-xl bg-white/5 p-2"><p className="text-slate-500">H/s Total</p><p className="font-black text-cyan-300">{fmtHS(hashrate)}</p></div>
+            </div>
           </Card>
         </div>
       </div>
 
+      {/* Modal de personalização */}
       <Modal aberto={editar} onFechar={() => setEditar(false)} titulo="Personalizar perfil">
         <div className="space-y-4">
-          <div><p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Avatar</p><div className="grid grid-cols-8 gap-1.5">{AVATARES.map((a) => <button key={a} onClick={() => atualizar((d) => ({ ...d, avatar: a }))} className={`flex h-10 items-center justify-center rounded-xl border text-xl transition ${data.avatar === a ? "border-fuchsia-400 bg-fuchsia-500/25" : "border-white/10 bg-white/5"}`}>{a}</button>)}</div></div>
-          <div><p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</p><div className="flex flex-wrap gap-1.5">{STATUS_QUARTO.map((s) => <button key={s} onClick={() => atualizar((d) => ({ ...d, status: s }))} className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold ${data.status === s ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-white/10 bg-white/5 text-slate-400"}`}>{s}</button>)}</div></div>
-          <div><p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Ambiente</p><div className="flex flex-wrap gap-2">{TEMAS.map((t) => <button key={t.id} onClick={() => atualizar((d) => ({ ...d, tema: t.id }))} title={t.nome} className={`h-9 w-9 rounded-xl bg-gradient-to-br ${t.classe} ring-2 ${data.tema === t.id ? "scale-110 ring-fuchsia-400" : "ring-white/10"}`} />)}</div></div>
-          <div><p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Nome de exibição</p><div className="flex gap-2"><Input value={nome} onChange={(e) => setNome(e.target.value)} /><Botao onClick={() => { if (nome.trim().length < 2) return toast("Nome muito curto", "erro"); atualizar((d) => ({ ...d, nome: nome.trim() })); setEditar(false); }}>Salvar</Botao></div></div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Avatar</p>
+            <div className="grid grid-cols-8 gap-1.5">
+              {AVATARES.map((a) => (
+                <button key={a} onClick={() => atualizar((d) => ({ ...d, avatar: a }))}
+                  className={cn("flex h-10 items-center justify-center rounded-xl border text-xl",
+                    data.avatar === a ? "border-fuchsia-400 bg-fuchsia-500/25" : "border-white/10 bg-white/5")}>
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</p>
+            <div className="flex flex-wrap gap-1.5">
+              {STATUS_QUARTO.map((s) => (
+                <button key={s} onClick={() => atualizar((d) => ({ ...d, status: s }))}
+                  className={cn("rounded-lg border px-2.5 py-1 text-[11px] font-bold",
+                    data.status === s ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-white/10 bg-white/5 text-slate-400")}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Ambiente</p>
+            <div className="flex flex-wrap gap-2">
+              {TEMAS.map((t) => (
+                <button key={t.id} onClick={() => atualizar((d) => ({ ...d, tema: t.id }))} title={t.nome}
+                  className={cn(`h-9 w-9 rounded-xl bg-gradient-to-br ${t.classe} ring-2 transition`,
+                    data.tema === t.id ? "scale-110 ring-fuchsia-400" : "ring-white/10")} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Nome de exibição</p>
+            <div className="flex gap-2">
+              <Input value={nomeEdit} onChange={(e) => setNomeEdit(e.target.value)} />
+              <Botao onClick={() => {
+                if (nomeEdit.trim().length < 2) return toast("Nome muito curto", "erro");
+                atualizar((d) => ({ ...d, nome: nomeEdit.trim() }));
+                setEditar(false);
+              }}>Salvar</Botao>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <span className="text-lg">{data.quartoAberto !== false ? "🚪" : "🔒"}</span>
+            <div className="flex-1">
+              <p className="text-xs font-black text-white">{data.quartoAberto !== false ? "Quarto aberto a visitantes" : "Quarto privado"}</p>
+              <p className="text-[10px] text-slate-500">Outros jogadores podem {data.quartoAberto !== false ? "" : "não"} visitar seu quarto.</p>
+            </div>
+            <button onClick={() => atualizar((d) => ({ ...d, quartoAberto: d.quartoAberto === false }))}
+              className={cn("rounded-lg px-3 py-1.5 text-[11px] font-black transition",
+                data.quartoAberto !== false ? "bg-rose-600/20 text-rose-300" : "bg-emerald-600/20 text-emerald-300")}>
+              {data.quartoAberto !== false ? "Fechar" : "Abrir"}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

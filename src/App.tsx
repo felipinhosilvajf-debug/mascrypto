@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppProvider, useApp } from "./store/AppContext";
-import { ConfigProvider } from "./store/ConfigContext";
+import { ConfigProvider, useConfig } from "./store/ConfigContext";
 import { TemaProvider, useTema, TEMA_CLASSES, type Tema } from "./store/ThemeContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -12,20 +12,24 @@ import VirtualRoomView from "./components/VirtualRoomView";
 import LojaView from "./components/LojaView";
 import AdminView from "./components/AdminView";
 import SuporteView from "./components/SuporteView";
+import MundoView from "./components/MundoView";
+import TermosModal, { TERMOS_VERSAO } from "./components/TermosModal";
 import { Botao, Card, Input, PillSaldo } from "./components/UI";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, progressoNivel } from "./lib/economia";
 import { cn } from "./utils/cn";
 
-const NAV = [
-  { id: "inicio", nome: "Início", emoji: "🏦" },
-  { id: "mineracao", nome: "Mineração", emoji: "⛏️" },
-  { id: "cassino", nome: "Cassino", emoji: "🎰" },
-  { id: "loja", nome: "Loja", emoji: "🛒" },
-  { id: "quarto", nome: "Quarto", emoji: "🏠" },
-  { id: "carteira", nome: "Carteira", emoji: "💱" },
-  { id: "suporte", nome: "Suporte", emoji: "🎧" },
-  { id: "ranking", nome: "Ranking", emoji: "🏆" },
-];
+/** Itens base do menu — o Admin pode desativar qualquer módulo via cfg.modulos. */
+const NAV_BASE = [
+  { id: "inicio",    nome: "Início",    emoji: "🏦", mod: null        },
+  { id: "mineracao", nome: "Mineração", emoji: "⛏️", mod: "mineracao" },
+  { id: "cassino",   nome: "Cassino",   emoji: "🎰", mod: "cassino"   },
+  { id: "loja",      nome: "Loja",      emoji: "🛒", mod: "loja"      },
+  { id: "quarto",    nome: "Quarto",    emoji: "🏠", mod: "quarto"    },
+  { id: "mundo",     nome: "Mundo",     emoji: "🌐", mod: "mundo"     },
+  { id: "carteira",  nome: "Carteira",  emoji: "💱", mod: "carteira"  },
+  { id: "suporte",   nome: "Suporte",   emoji: "🎧", mod: "suporte"   },
+  { id: "ranking",   nome: "Ranking",   emoji: "🏆", mod: "ranking"   },
+] as const;
 
 /** Moeda 3D girando — usada no logo e na index */
 export function CoinMAS({ size = 40 }: { size?: number }) {
@@ -121,10 +125,24 @@ function SeletorTema() {
 }
 
 function Shell() {
-  const { user, data, carregando, sair, toasts, toast, precoMAS, online, hashrate, ehAdmin, desbloquearAdmin } =
-    useApp();
+  const {
+    user,
+    data,
+    carregando,
+    sair,
+    toasts,
+    toast,
+    precoMAS,
+    online,
+    hashrate,
+    ehAdmin,
+    desbloquearAdmin,
+    aceitarTermos,
+  } = useApp();
   const { tema } = useTema();
   const [pag, setPag] = useState("inicio");
+  /** UID do quarto que está sendo visitado (null = próprio quarto / anfitrião). */
+  const [quartoVisitado, setQuartoVisitado] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [, forcar] = useState(0);
@@ -143,6 +161,8 @@ function Shell() {
 
   useEffect(() => {
     if (pag === "admin" && !ehAdmin) setPag("inicio");
+    // Sair da aba Quarto encerra a visita e volta ao modo anfitrião
+    if (pag !== "quarto") setQuartoVisitado(null);
   }, [pag, ehAdmin]);
 
   if (carregando)
@@ -176,9 +196,26 @@ function Shell() {
       </div>
     );
 
+  /* Aceite obrigatório dos Termos de Uso — bloqueia a navegação até confirmar. */
+  if (data.termosVersao !== TERMOS_VERSAO)
+    return (
+      <div className={cn("min-h-screen", temaInfo.bg)}>
+        <TermosModal
+          onAceitar={() => {
+            aceitarTermos(TERMOS_VERSAO);
+            toast("Termos aceitos. Bem-vindo à rede MAS! 🚀", "ok");
+          }}
+          onRecusar={sair}
+        />
+      </div>
+    );
+
   const nivel = nivelPorXp(data.xp);
   const pat = patente(nivel);
   const prog = progressoNivel(data.xp);
+  const { cfg } = useConfig();
+  const modulos = cfg.modulos || {};
+  const NAV = NAV_BASE.filter((n) => n.mod === null || modulos[n.mod as keyof typeof modulos] !== false);
   const navCompleta = ehAdmin ? [...NAV, { id: "admin", nome: "Admin", emoji: "🛡️" }] : NAV;
 
   /* Estilos por tema */
@@ -409,7 +446,20 @@ function Shell() {
         {pag === "mineracao" && <MiningView />}
         {pag === "cassino" && <CasinoView />}
         {pag === "loja" && <LojaView />}
-        {pag === "quarto" && <VirtualRoomView />}
+        {pag === "quarto" && (
+          <VirtualRoomView
+            hostId={quartoVisitado ?? undefined}
+            onSair={() => setQuartoVisitado(null)}
+          />
+        )}
+        {pag === "mundo" && (
+          <MundoView
+            onEntrarQuarto={(hostId) => {
+              setQuartoVisitado(hostId === data.uid ? null : hostId);
+              setPag("quarto");
+            }}
+          />
+        )}
         {pag === "carteira" && <WalletView />}
         {pag === "suporte" && <SuporteView />}
         {pag === "ranking" && <Ranking />}

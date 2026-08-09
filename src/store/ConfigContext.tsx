@@ -50,6 +50,9 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     bilheteria: { ...CONFIG_PADRAO.bilheteria, ...(bruto?.bilheteria || {}) },
     overrides: { ...CONFIG_PADRAO.overrides, ...(bruto?.overrides || {}) },
     visual: { ...CONFIG_PADRAO.visual, ...(bruto?.visual || {}) },
+    modulos: { ...CONFIG_PADRAO.modulos, ...(bruto?.modulos || {}) },
+    custoSlotHardware: bruto?.custoSlotHardware ?? CONFIG_PADRAO.custoSlotHardware,
+    limiteSlotHardwareGlobal: bruto?.limiteSlotHardwareGlobal ?? CONFIG_PADRAO.limiteSlotHardwareGlobal,
   };
   // Garante limites saudáveis (evita loops travados por config inválida)
   if (c.grafico.intervaloMs < 500) c.grafico.intervaloMs = 500;

@@ -440,6 +440,15 @@ function EditorConta({
               </Botao>
             </div>
           </Campo>
+          <Campo label="Capacidade de slots de hardware" dica="Slots de GPU/periférico no quarto (mín 4, máx pelo limite global)">
+            <Input
+              type="number"
+              min={4}
+              max={64}
+              value={(u as any).capacidadeSlotsHardware ?? 4}
+              onChange={(e) => setU((x) => ({ ...x, capacidadeSlotsHardware: Math.max(4, Number(e.target.value)) } as typeof x))}
+            />
+          </Campo>
         </div>
 
         <div className="flex flex-wrap gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
@@ -1738,6 +1747,52 @@ function ConfigAdmin() {
             <Switch ligado={cfg.cassinoAtivo} onChange={(v) => salvarConfig({ cassinoAtivo: v })} rotulo="Cassino aberto" />
             <Switch ligado={cfg.saquesAtivos} onChange={(v) => salvarConfig({ saquesAtivos: v })} rotulo="Saques liberados" />
           </div>
+
+        {/* ── Módulos / Abas do Menu ── */}
+        </div>
+        <div className="mt-4 rounded-2xl border border-sky-500/25 bg-sky-500/[0.05] p-4">
+          <h4 className="mb-3 font-black text-white">🗂️ Ativação de Abas do Menu</h4>
+          <p className="mb-3 text-[11px] text-slate-400">
+            Quando uma aba estiver desativada, o botão some do menu para todos os usuários em tempo real.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {([
+              ["mineracao", "⛏️ Mineração"],
+              ["cassino",   "🎰 Cassino"],
+              ["loja",      "🛒 Loja"],
+              ["quarto",    "🏠 Quarto"],
+              ["mundo",     "🌐 Mundo"],
+              ["carteira",  "💱 Carteira"],
+              ["suporte",   "🎧 Suporte"],
+              ["ranking",   "🏆 Ranking"],
+            ] as const).map(([k, label]) => {
+              const ativo = cfg.modulos?.[k] !== false;
+              return (
+                <div key={k} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <span className="text-[11px] font-bold text-slate-300">{label}</span>
+                  <Switch
+                    ligado={ativo}
+                    onChange={(v) => salvarConfig({ modulos: { ...cfg.modulos, [k]: v } })}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="mt-4 rounded-2xl border border-fuchsia-500/25 bg-fuchsia-500/[0.05] p-4">
+          <h4 className="mb-3 font-black text-white">🖥️ Slots de Hardware do Quarto</h4>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo label="Custo de 1 slot extra (MAS)">
+              <Input type="number" min={0} step={100} value={cfg.custoSlotHardware}
+                onChange={(e) => salvarConfig({ custoSlotHardware: Math.max(0, Number(e.target.value)) })} />
+            </Campo>
+            <Campo label="Capacidade máxima global de slots" dica="Por conta — o usuário pode comprar até este limite">
+              <Input type="number" min={4} max={64} step={1} value={cfg.limiteSlotHardwareGlobal}
+                onChange={(e) => salvarConfig({ limiteSlotHardwareGlobal: Math.max(4, Number(e.target.value)) })} />
+            </Campo>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="space-y-3">
             <Campo label="Depósito mínimo (R$)">
               <Input type="number" min={0.01} step="0.01" value={cfg.depositoMinimo} onChange={(e) => salvarConfig({ depositoMinimo: Math.max(0.01, Number(e.target.value)) })} />
@@ -1746,12 +1801,7 @@ function ConfigAdmin() {
               <Input type="number" min={0.01} step="0.01" value={cfg.saqueMinimo} onChange={(e) => salvarConfig({ saqueMinimo: Math.max(0.01, Number(e.target.value)) })} />
             </Campo>
             <Campo label="Taxa de conversão (%)">
-              <Input
-                type="number"
-                step="0.5"
-                value={cfg.taxaConversao * 100}
-                onChange={(e) => salvarConfig({ taxaConversao: Number(e.target.value) / 100 })}
-              />
+              <Input type="number" step="0.5" value={cfg.taxaConversao * 100} onChange={(e) => salvarConfig({ taxaConversao: Number(e.target.value) / 100 })} />
             </Campo>
           </div>
         </div>
