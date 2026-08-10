@@ -9,12 +9,12 @@
  * • Presença multiplayer sincronizada via Firestore online_room
  */
 import { useCallback, useEffect, useState, useRef } from "react";
-import { Backpack, Box, Cat, Glasses, HardHat, MonitorCog, Shirt, Sparkles, Send, Cpu, PlusCircle } from "lucide-react";
-import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc, query, limit, orderBy, where } from "firebase/firestore";
+import { MonitorCog, Send, PlusCircle } from "lucide-react";
+import { doc, onSnapshot, setDoc, deleteDoc, collection, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../lib/types";
+import { SLOTS_RPG, STATUS_QUARTO, normalizar, type UserData } from "../lib/types";
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
 import { ArteItem, AvatarVisual, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
 import { cn } from "../utils/cn";
@@ -47,6 +47,7 @@ interface JogadorOnline {
   lastMsgTs: number;
   status: string;
   nivel: number;
+  sala: string;
 }
 
 interface MsgQuarto {
@@ -57,31 +58,31 @@ interface MsgQuarto {
   ts: number;
 }
 
-const SLOT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  chapeu: HardHat, oculos: Glasses, camisa: Shirt, calca: Sparkles, sapato: Box, pet: Cat,
-  gpu: MonitorCog, periferico: Cpu,
-};
-
 /** TTL das mensagens do chat local (5 minutos). */
 const CHAT_TTL_MS = 5 * 60 * 1000;
 
 export default function VirtualRoomView({
   hostId,
   onSair,
+  abrirPersonalizacao,
+  onPersonalizacaoAberta,
 }: {
   /** UID do dono do quarto. Se ausente ou igual ao usuário → Modo Anfitrião. */
   hostId?: string;
   /** Callback para voltar (exibido apenas no Modo Visitante). */
   onSair?: () => void;
+  abrirPersonalizacao?: boolean;
+  onPersonalizacaoAberta?: () => void;
 } = {}) {
   const {
     user, data, atualizar, posicionarNoQuarto, removerDoQuarto,
-    equipar, desequipar, hashrate, detalheHash, mover, toast,
+    hashrate, detalheHash, mover, toast,
   } = useApp();
   const { cfg } = useConfig();
 
   const [sel, setSel] = useState<string | null>(null);
   const [editar, setEditar] = useState(false);
+  const [ambienteAberto, setAmbienteAberto] = useState(false);
   const [nomeEdit, setNomeEdit] = useState(data?.nome || "");
   const [abaLateral, setAbaLateral] = useState<"rpg" | "hardware" | "decoracao">("rpg");
   const [jogadores, setJogadores] = useState<JogadorOnline[]>([]);
@@ -90,7 +91,20 @@ export default function VirtualRoomView({
   const [enviando, setEnviando] = useState(false);
   const [anfitriao, setAnfitriao] = useState<UserData | null>(null);
   const [posVisitante, setPosVisitante] = useState({ x: 1, y: 1 });
-  const fimChat = useRef<HTMLDivElement>(null);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const [agoraBubble, setAgoraBubble] = useState(Date.now());
+
+  useEffect(() => {
+    const i = setInterval(() => setAgoraBubble(Date.now()), 500);
+    return () => clearInterval(i);
+  }, []);
+
+  useEffect(() => {
+    if (abrirPersonalizacao && !hostId) {
+      setEditar(true);
+      onPersonalizacaoAberta?.();
+    }
+  }, [abrirPersonalizacao, hostId, onPersonalizacaoAberta]);
 
   /* ─── MODO: Anfitrião (próprio quarto) vs. Visitante (quarto de outro) ─── */
   const ehVisitante = !!hostId && hostId !== user?.uid;
@@ -100,6 +114,12 @@ export default function VirtualRoomView({
   const salaId = donoId;
   /** Posição do avatar controlado: local no modo visitante, persistida no anfitrião. */
   const minhaPos = ehVisitante ? posVisitante : data?.avatarPos ?? { x: 4, y: 3 };
+  const texturaPiso: Record<string, string> = {
+    grid: `linear-gradient(30deg, transparent 48%, rgba(255,255,255,.14) 49%, transparent 51%), linear-gradient(-30deg, transparent 48%, rgba(255,255,255,.10) 49%, transparent 51%)`,
+    madeira: `repeating-linear-gradient(90deg, rgba(255,255,255,.13) 0 2px, transparent 2px 18px)`,
+    metal: `repeating-linear-gradient(0deg, rgba(255,255,255,.12) 0 1px, transparent 1px 10px)`,
+    liso: "none",
+  };
 
   // ── Carrega o estado do quarto do anfitrião (modo visitante) ──
   useEffect(() => {
@@ -121,7 +141,9 @@ export default function VirtualRoomView({
         await setDoc(pRef, sanitize({
           uid: user.uid, nome: data.nome, avatar: data.avatar, avatarImg: data.avatarImg || "",
           avatarPos: minhaPos, equipados: data.equipados || {},
-          lastMsg: "", lastMsgTs: 0, status: data.status,
+          lastMsg: "",
+          lastMsgTs: 0,
+          status: data.status,
           nivel: nivelPorXp(data.xp),
           sala: donoId,
         } as JogadorOnline));
@@ -142,31 +164,40 @@ export default function VirtualRoomView({
   // ── Chat local temporário (TTL 5 min) ──
   useEffect(() => {
     if (!salaId) return;
-    const q = query(
-      collection(db, "chat_quarto"),
-      where("sala", "==", salaId),
-      orderBy("ts", "desc"),
-      limit(40),
-    );
+    /* Escuta a coleção e filtra a sala no cliente. Isso evita depender de
+       índice composto no Firestore e mantém a atualização instantânea. */
+    const q = collection(db, "chat_quarto");
     const filtrar = (docs: MsgQuarto[]) => {
       const agora = Date.now();
       return docs.filter((m) => agora - m.ts < CHAT_TTL_MS).reverse();
     };
     const unsub = onSnapshot(q,
       (snap) => {
-        const brutos = snap.docs.map((d) => d.data() as MsgQuarto);
+        const brutos = snap.docs
+          .map((d) => d.data() as MsgQuarto)
+          .filter((m) => (m as unknown as { sala?: string }).sala === salaId)
+          .sort((a, b) => a.ts - b.ts)
+          .slice(-40);
         setMsgs(filtrar(brutos));
-        setTimeout(() => fimChat.current?.scrollIntoView({ behavior: "smooth" }), 60);
         // Expurga do banco as mensagens vencidas desta sala
         const agora = Date.now();
         snap.docs
-          .filter((d) => agora - (d.data() as MsgQuarto).ts >= CHAT_TTL_MS)
+          .filter((d) => (d.data() as { sala?: string }).sala === salaId && agora - (d.data() as MsgQuarto).ts >= CHAT_TTL_MS)
           .forEach((d) => deleteDoc(d.ref).catch(() => {}));
       },
       () => {}
     );
     return unsub;
   }, [salaId]);
+
+  /* Mantém o histórico sempre posicionado na mensagem mais recente. */
+  useEffect(() => {
+    const el = chatHistoryRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [msgs]);
 
   /* Varredura periódica: remove da tela mensagens que passaram do TTL. */
   useEffect(() => {
@@ -225,7 +256,6 @@ export default function VirtualRoomView({
   const nivel = nivelPorXp(data.xp);
   const pat = patente(nivel);
   const prog = progressoNivel(data.xp);
-  const tema = TEMAS.find((t) => t.id === sala.tema) || TEMAS[0];
 
   // itens decorativos do inventário (apenas anfitrião edita)
   const decorativos = cfg.itens.filter((i) => data.itens.includes(i.id) && (i.decorativo || i.categoria === "movel"));
@@ -250,11 +280,14 @@ export default function VirtualRoomView({
     if (nivelPorXp(data.xp) < reqChat) return toast(`Chat do quarto exige nível ${reqChat}`, "erro");
     setEnviando(true);
     try {
-      await addDoc(collection(db, "chat_quarto"), {
+      const ts = Date.now();
+      // O histórico usa a mensagem integral
+      await addDoc(collection(db, "chat_quarto"), sanitize({
         uid: user.uid, nome: data.nome, avatar: data.avatar,
-        texto: t.slice(0, 200), sala: salaId, ts: Date.now(),
-      });
-      // Atualiza o balão sobre a cabeça do avatar por 5 segundos
+        texto: t, sala: salaId, ts,
+      }));
+      // O balão flutuante é limitado a 30 caracteres
+      const balao = t.length > 30 ? t.slice(0, 30) + "..." : t;
       await setDoc(doc(db, "online_room", user.uid), sanitize({
         uid: user.uid,
         nome: data.nome,
@@ -262,13 +295,13 @@ export default function VirtualRoomView({
         avatarImg: data.avatarImg || "",
         avatarPos: minhaPos,
         equipados: data.equipados || {},
-        lastMsg: t.slice(0, 120),
-        lastMsgTs: Date.now(),
+        lastMsg: balao,
+        lastMsgTs: ts,
         status: data.status,
         nivel: nivelPorXp(data.xp),
         sala: donoId,
       } as JogadorOnline));
-      atualizar((d) => ({ ...d, lastMsg: t.slice(0, 120), lastMsgTs: Date.now() }));
+      atualizar((d) => ({ ...d, lastMsg: balao, lastMsgTs: ts }));
       setTextoChat("");
     } catch { toast("Falha ao enviar mensagem", "erro"); }
     finally { setEnviando(false); }
@@ -348,7 +381,10 @@ export default function VirtualRoomView({
           {ehVisitante ? (
             <Botao variante="ghost" onClick={onSair}>← Sair do quarto</Botao>
           ) : (
-            <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar</Botao>
+            <>
+              <Botao variante="ghost" onClick={() => setEditar(true)}>Personalizar Avatar</Botao>
+              <Botao variante="neon" onClick={() => setAmbienteAberto(true)}>🎨 Ambiente</Botao>
+            </>
           )}
         </div>
       </Card>
@@ -356,8 +392,14 @@ export default function VirtualRoomView({
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         {/* ── QUARTO ISOMÉTRICO ── */}
         <Card className="overflow-hidden p-0">
-          <div className={`relative overflow-hidden bg-gradient-to-b ${tema.classe}`}
-               style={{ height: `${80 + (COLS + ROWS) * 20}px`, minHeight: "440px" }}>
+          <div
+            className="relative overflow-hidden"
+            style={{
+              height: `${80 + (COLS + ROWS) * 20}px`,
+              minHeight: "440px",
+              background: `linear-gradient(180deg, ${sala.quartoFundo}, color-mix(in srgb, ${sala.quartoFundo} 68%, #000))`,
+            }}
+          >
             {/* Luz ambiente */}
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_10%,rgba(255,255,255,.13),transparent_60%)]" />
             {/* "Parede" do fundo */}
@@ -398,7 +440,11 @@ export default function VirtualRoomView({
                         ? "border-fuchsia-300/70 bg-fuchsia-500/25 hover:bg-fuchsia-400/40"
                         : "border-white/[0.15] bg-slate-800/50 hover:bg-cyan-500/20",
                     )}
-                    style={{ ...iso(x, y) }}
+                    style={{
+                      ...iso(x, y),
+                      backgroundColor: sel && !item && !ehVisitante ? undefined : sala.quartoPiso,
+                      backgroundImage: sel && !item && !ehVisitante ? undefined : texturaPiso[sala.quartoTextura],
+                    }}
                   />
                 );
               })}
@@ -429,20 +475,20 @@ export default function VirtualRoomView({
               {/* Outros jogadores presentes NESTA sala */}
               {jogadores.filter((j) => j.uid !== user.uid && (j as any).sala === donoId).map((j) => {
                 const pos = iso(j.avatarPos.x, j.avatarPos.y);
-                const mostra = j.lastMsg && Date.now() - j.lastMsgTs < 6000;
-                const chapItem = cfg.itens.find((i) => i.id === j.equipados?.chapeu);
+                const mostraBalao = j.lastMsg && agoraBubble - j.lastMsgTs < 5000;
                 return (
                   <div key={j.uid}
                     className="pointer-events-none absolute z-25 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-all duration-300 ease-out"
                     style={pos}>
-                    {mostra && (
-                      <div className="absolute -top-12 mb-1 max-w-[120px] rounded-xl bg-white px-2 py-1 text-[11px] font-bold text-slate-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-white">
-                        <p className="line-clamp-2">{j.lastMsg}</p>
+                    {mostraBalao && (
+                      <div className="absolute -top-10 mb-1 max-w-[120px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-white px-2 py-1 text-[11px] font-bold text-slate-900 shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-white">
+                        <p className="break-words whitespace-pre-wrap">{j.lastMsg}</p>
                       </div>
                     )}
-                    <div className="relative text-4xl drop-shadow-[0_10px_6px_rgba(0,0,0,.8)]">
-                      <AvatarVisual avatar={j.avatar} imagem={j.avatarImg} className="h-10 w-10" emojiClassName="text-4xl" />
-                      {chapItem && <span className="absolute -right-2 -top-2 text-base">{chapItem.emoji}</span>}
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-white/15 bg-slate-800/70 shadow-[0_0_16px_-4px_rgba(120,120,255,.4)] drop-shadow-[0_10px_6px_rgba(0,0,0,.8)]">
+                      {j.avatarImg
+                        ? <img src={j.avatarImg} alt="" className="h-full w-full object-cover" />
+                        : <span className="text-4xl">{j.avatar}</span>}
                     </div>
                     <p className="rounded-full bg-black/65 px-2 py-0.5 text-[8px] font-black text-white">{j.nome}</p>
                     <span className="mt-0.5 h-1.5 w-8 rounded-full bg-black/30 blur-[1px]" />
@@ -450,19 +496,19 @@ export default function VirtualRoomView({
                 );
               })}
 
-              {/* Avatar do usuário */}
+              {/* Avatar do usuário — sprite completo equipado */}
               <div
                 className="pointer-events-none absolute z-30 flex -translate-x-1/2 -translate-y-full flex-col items-center transition-all duration-200 ease-out"
                 style={iso(minhaPos.x, minhaPos.y)}>
-                {data.lastMsg && Date.now() - (data.lastMsgTs || 0) < 6000 && (
-                  <div className="absolute -top-12 mb-1 max-w-[120px] rounded-xl bg-fuchsia-600 px-2 py-1 text-[11px] font-bold text-white shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-fuchsia-600">
-                    <p className="line-clamp-2">{data.lastMsg}</p>
+                {data.lastMsg && Date.now() - (data.lastMsgTs || 0) < 5000 && (
+                  <div className="absolute -top-10 mb-1 max-w-[120px] animate-[winBurst_0.3s_ease-out] rounded-xl bg-fuchsia-600 px-2 py-1 text-[11px] font-bold text-white shadow-lg after:absolute after:left-1/2 after:top-full after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-fuchsia-600">
+                    <p className="break-words whitespace-pre-wrap">{data.lastMsg}</p>
                   </div>
                 )}
-                <div className="relative text-4xl drop-shadow-[0_10px_8px_rgba(0,0,0,.9)]">
-                  <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-10 w-10" emojiClassName="text-4xl" />
-                  {data.equipados.chapeu && <span className="absolute -right-2 -top-2 text-base">{cfg.itens.find((i) => i.id === data.equipados.chapeu)?.emoji}</span>}
-                  {data.equipados.pet && <span className="absolute -right-6 bottom-0 text-xl">{cfg.itens.find((i) => i.id === data.equipados.pet)?.emoji}</span>}
+                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-fuchsia-400/50 bg-slate-800/70 shadow-[0_0_18px_-4px_rgba(217,70,239,.9)] drop-shadow-[0_10px_8px_rgba(0,0,0,.9)]">
+                  {data.avatarImg
+                    ? <img src={data.avatarImg} alt="" className="h-full w-full object-cover" />
+                    : <span className="text-4xl">{data.avatar}</span>}
                 </div>
                 <p className="rounded-full bg-fuchsia-600 px-2.5 py-0.5 text-[9px] font-black text-white shadow-[0_0_14px_rgba(217,70,239,.5)]">{data.nome}</p>
                 <span className="mt-0.5 h-2 w-10 rounded-full bg-black/40 blur-[2px]" />
@@ -500,26 +546,37 @@ export default function VirtualRoomView({
             </div>
           )}
 
-          {/* Chat privado temporário */}
+          {/* Chat privado temporário — histórico fixo e rolável */}
           <div className="border-t border-white/10 px-4 pb-4 pt-3">
             <p className="mb-2 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-fuchsia-300/70">
               <span>💬</span> Chat do quarto · mensagens expiram em 5 min
             </p>
-            <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+            <div
+              id="chat-history"
+              ref={chatHistoryRef}
+              className="max-h-24 min-h-24 h-24 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-black/25 p-2 pr-1"
+              style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}
+            >
+              {msgs.length === 0 && (
+                <p className="py-16 text-center text-xs text-slate-500">Nenhuma mensagem recente neste quarto.</p>
+              )}
               {msgs.map((m, i) => (
-                <div key={i} className={cn("flex gap-1.5", m.uid === user.uid && "flex-row-reverse")}>
-                  <span className="shrink-0 text-xl">{m.avatar}</span>
-                  <div className={cn("max-w-[75%] rounded-xl px-2.5 py-1 text-[11px]",
-                    m.uid === user.uid ? "bg-fuchsia-600/30 text-fuchsia-50" : "bg-white/[0.07] text-slate-200")}>
-                    <b className="block text-[9px] font-black uppercase text-slate-400">{m.uid === user.uid ? "Você" : m.nome}</b>
-                    <span className="line-clamp-3 break-words">{m.texto}</span>
-                  </div>
+                <div
+                  key={`${m.uid}-${m.ts}-${i}`}
+                  className={cn(
+                    "rounded-lg px-2 py-1.5 text-xs leading-relaxed",
+                    m.uid === user.uid ? "bg-fuchsia-600/20 text-fuchsia-50" : "bg-white/[0.06] text-slate-200",
+                  )}
+                >
+                  <span className="username mr-1 font-black text-fuchsia-300">
+                    {m.uid === user.uid ? "Você" : m.nome}:
+                  </span>
+                  <span className="break-words whitespace-pre-wrap">{m.texto}</span>
                 </div>
               ))}
-              <div ref={fimChat} />
             </div>
             <div className="mt-2 flex gap-1.5">
-              <Input placeholder="Falar no quarto..." value={textoChat} maxLength={200}
+              <Input id="chat-input" placeholder="Falar no quarto..." value={textoChat} maxLength={150}
                 onChange={(e) => setTextoChat(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && enviarChat()}
                 className="py-1.5 text-xs" />
@@ -574,46 +631,37 @@ export default function VirtualRoomView({
                 <p className="mt-1 font-black text-white">{data.nome}</p>
                 <p className={cn("text-[11px] font-bold", pat.cor)}>{pat.emoji} {pat.nome} · Nv {nivel}</p>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                {SLOTS_RPG.map((s) => {
-                  const it = cfg.itens.find((i) => i.id === data.equipados[s.id]);
-                  const Icone = SLOT_ICONS[s.id] || Backpack;
-                  return (
-                    <div key={s.id}
-                      className={cn("relative rounded-2xl border p-2.5",
-                        it ? "border-fuchsia-400/35 bg-fuchsia-500/[0.08]" : "border-white/10 bg-black/20")}>
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/35">
-                          {it
-                            ? <ArteItem emoji={it.emoji} imagem={it.imagem} tamanho="text-xl" className="h-6 w-6" />
-                            : <Icone className="h-4 w-4 text-slate-600" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[9px] font-bold uppercase text-slate-500">{s.nome}</p>
-                          <p className="truncate text-[11px] font-black text-white">{it?.nome || "Vazio"}</p>
-                        </div>
-                      </div>
-                      {it && <button onClick={() => desequipar(s.id)} className="absolute right-1 top-1 text-[9px] text-rose-300">×</button>}
-                    </div>
-                  );
-                })}
+              <div className="relative mx-auto mb-4">
+                <AvatarVisual avatar={data.avatar} imagem={data.avatarImg} className="h-20 w-20" emojiClassName="text-5xl" />
               </div>
-              {/* Itens equipáveis (RPG) do inventário */}
-              <div className="mt-3 max-h-[200px] space-y-1 overflow-y-auto">
-                {cfg.itens.filter((i) => data.itens.includes(i.id) && SLOTS_RPG.some((s) => s.id === i.slot)).map((i) => {
-                  const eq = Object.values(data.equipados).includes(i.id);
+              <p className="text-center text-[11px] text-slate-400">
+                Você equipa avatares inteiros (skins completas). Toque em <b className="text-white">Personalizar Avatar</b> no topo do quarto para trocar.
+              </p>
+              <div className="mt-3 space-y-2">
+                {cfg.itens.filter((item) => item.categoria === "avatar" && data.itens.includes(item.id)).map((item) => {
+                  const equipado = (data.avatarImg && data.avatarImg === item.imagem) || (!item.imagem && data.avatar === item.emoji);
                   return (
-                    <div key={i.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-                      <ArteItem emoji={i.emoji} imagem={i.imagem} tamanho="text-xl" className="h-7 w-7" />
+                    <div key={item.id} className={`flex items-center gap-2 rounded-xl border p-2 ${equipado ? "border-fuchsia-400/40 bg-fuchsia-500/10" : "border-white/10 bg-white/[0.03]"}`}>
+                      <ArteItem emoji={item.emoji} imagem={item.imagem} tamanho="text-xl" className="h-8 w-8 rounded-lg object-cover" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[11px] font-bold text-white">{i.nome}</p>
-                        <p className="text-[9px] text-slate-500">{i.slot}</p>
+                        <p className="truncate text-xs font-bold text-white">{item.nome}</p>
+                        {item.bonusPct > 0 && <p className="text-[9px] text-emerald-300">+{Math.round(item.bonusPct * 100)}% H/s</p>}
                       </div>
-                      <Botao variante={eq ? "ghost" : "sucesso"} disabled={eq} className="px-2 py-1 text-[10px]"
-                        onClick={() => equipar(i.id)}>{eq ? "Equipado" : "Equipar"}</Botao>
+                      <Botao
+                        variante={equipado ? "ghost" : "sucesso"}
+                        className="px-2 py-1 text-[10px]"
+                        onClick={() => atualizar((d) => ({ ...d, avatar: item.emoji, avatarImg: item.imagem }))}
+                      >
+                        {equipado ? "✓ Ativo" : "Usar"}
+                      </Botao>
                     </div>
                   );
                 })}
+                {cfg.itens.filter((item) => item.categoria === "avatar" && data.itens.includes(item.id)).length === 0 && (
+                  <p className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center text-xs text-slate-500">
+                    Nenhuma skin premium ainda. Visite a Loja → Avatares Premium.
+                  </p>
+                )}
               </div>
             </Card>
           )}
@@ -724,8 +772,8 @@ export default function VirtualRoomView({
         </div>
       </div>
 
-      {/* Modal de personalização */}
-      <Modal aberto={editar} onFechar={() => setEditar(false)} titulo="Personalizar perfil">
+      {/* Modal de personalização do avatar — sem coordenadas/offsets para o jogador */}
+      <Modal aberto={editar} onFechar={() => setEditar(false)} titulo="Personalizar Avatar" largura="max-w-2xl">
         <div className="space-y-4">
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -778,6 +826,38 @@ export default function VirtualRoomView({
             )}
           </div>
           <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              Avatares Premium · Skins completas adquiridas
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {cfg.itens
+                .filter((item) => item.categoria === "avatar" && data.itens.includes(item.id))
+                .map((item) => {
+                  const equipado = (data.avatarImg && data.avatarImg === item.imagem) || (!item.imagem && data.avatar === item.emoji);
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => atualizar((d) => ({ ...d, avatar: item.emoji, avatarImg: item.imagem }))}
+                      title={item.nome}
+                      className={`flex flex-col items-center gap-1 rounded-xl border p-2 transition ${
+                        equipado ? "border-fuchsia-400 bg-fuchsia-500/20 ring-1 ring-fuchsia-400" : "border-white/10 bg-white/[0.03] hover:border-fuchsia-400/40"
+                      }`}
+                    >
+                      <ArteItem emoji={item.emoji} imagem={item.imagem} tamanho="text-2xl" className="h-10 w-10 rounded-lg object-cover" />
+                      <p className="w-full truncate text-[10px] font-bold text-white">{item.nome}</p>
+                      {item.bonusPct > 0 && <span className="text-[9px] font-bold text-emerald-300">+{Math.round(item.bonusPct * 100)}% H/s</span>}
+                      <span className="text-[9px] font-black uppercase">{equipado ? "✓ Equipado" : "Usar"}</span>
+                    </button>
+                  );
+                })}
+              {cfg.itens.filter((item) => item.categoria === "avatar" && data.itens.includes(item.id)).length === 0 && (
+                <p className="col-span-full rounded-xl border border-white/10 bg-white/[0.03] py-6 text-center text-xs text-slate-500">
+                  Você ainda não possui skins premium. Visite a Loja → Avatares Premium.
+                </p>
+              )}
+            </div>
+          </div>
+          <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</p>
             <div className="flex flex-wrap gap-1.5">
               {STATUS_QUARTO.map((s) => (
@@ -786,16 +866,6 @@ export default function VirtualRoomView({
                     data.status === s ? "border-cyan-400 bg-cyan-500/20 text-cyan-200" : "border-white/10 bg-white/5 text-slate-400")}>
                   {s}
                 </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Ambiente</p>
-            <div className="flex flex-wrap gap-2">
-              {TEMAS.map((t) => (
-                <button key={t.id} onClick={() => atualizar((d) => ({ ...d, tema: t.id }))} title={t.nome}
-                  className={cn(`h-9 w-9 rounded-xl bg-gradient-to-br ${t.classe} ring-2 transition`,
-                    data.tema === t.id ? "scale-110 ring-fuchsia-400" : "ring-white/10")} />
               ))}
             </div>
           </div>
@@ -824,6 +894,92 @@ export default function VirtualRoomView({
           </div>
         </div>
       </Modal>
+
+      {/* Ambiente do quarto — disponível exclusivamente ao anfitrião */}
+      {!ehVisitante && (
+        <Modal aberto={ambienteAberto} onFechar={() => setAmbienteAberto(false)} titulo="Configurar Ambiente" largura="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-400">
+              As cores são salvas no seu quarto e sincronizadas em tempo real para todos os visitantes presentes.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <span className="mb-2 block text-[10px] font-black uppercase tracking-wider text-slate-400">Fundo / Parede</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={data.quartoFundo}
+                    onChange={(e) => atualizar((d) => ({ ...d, quartoFundo: e.target.value }))}
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-white/10 bg-transparent"
+                  />
+                  <Input value={data.quartoFundo} onChange={(e) => atualizar((d) => ({ ...d, quartoFundo: e.target.value }))} />
+                </div>
+              </label>
+              <label className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <span className="mb-2 block text-[10px] font-black uppercase tracking-wider text-slate-400">Piso / Grid</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={data.quartoPiso}
+                    onChange={(e) => atualizar((d) => ({ ...d, quartoPiso: e.target.value }))}
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-white/10 bg-transparent"
+                  />
+                  <Input value={data.quartoPiso} onChange={(e) => atualizar((d) => ({ ...d, quartoPiso: e.target.value }))} />
+                </div>
+              </label>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Textura do piso</p>
+              <div className="grid grid-cols-4 gap-2">
+                {([
+                  ["grid", "Grid"],
+                  ["madeira", "Madeira"],
+                  ["metal", "Metal"],
+                  ["liso", "Liso"],
+                ] as const).map(([id, nome]) => (
+                  <button
+                    key={id}
+                    onClick={() => atualizar((d) => ({ ...d, quartoTextura: id }))}
+                    className={cn(
+                      "rounded-xl border py-2 text-[10px] font-black transition",
+                      data.quartoTextura === id ? "border-fuchsia-400 bg-fuchsia-500/20 text-white" : "border-white/10 bg-white/5 text-slate-400",
+                    )}
+                  >
+                    {nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Predefinições</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { nome: "Cyberpunk", fundo: "#140b2d", piso: "#251149" },
+                  { nome: "Ártico", fundo: "#0b2239", piso: "#123b57" },
+                  { nome: "Floresta", fundo: "#0b2b20", piso: "#174636" },
+                  { nome: "Solar", fundo: "#3b2108", piso: "#5b3310" },
+                  { nome: "Bull", fundo: "#330c17", piso: "#551426" },
+                  { nome: "Clean", fundo: "#334155", piso: "#475569" },
+                ].map((p) => (
+                  <button
+                    key={p.nome}
+                    onClick={() => atualizar((d) => ({ ...d, quartoFundo: p.fundo, quartoPiso: p.piso }))}
+                    className="rounded-xl border border-white/10 p-2 text-[10px] font-black text-white transition hover:-translate-y-0.5"
+                    style={{ background: `linear-gradient(135deg, ${p.fundo} 50%, ${p.piso} 50%)` }}
+                  >
+                    {p.nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Botao variante="sucesso" className="w-full" onClick={() => setAmbienteAberto(false)}>
+              Concluir
+            </Botao>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

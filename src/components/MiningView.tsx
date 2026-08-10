@@ -46,7 +46,7 @@ export default function MiningView() {
 
   /* ---- MINERAÇÃO POR CLIQUE (configurável pelo Admin) ---- */
   const clicar = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!mc.cliqueAtivo) return toast("Mineração por clique temporariamente indisponível", "erro");
+    if (!mc.cliqueAtivo) return toast("Mineração por clique desativada pela administração", "erro");
     const agora = Date.now();
     if (agora - ultimoClique.current < mc.cooldownMs) return; // anti-spam por cooldown
     // anti-exploit: no máximo 12 cliques válidos por 2s
@@ -214,13 +214,56 @@ export default function MiningView() {
                 </p>
                 <p className="text-[9px] text-cyan-200/80">+{fmtHS(detalheHash.hardwareSlots)}</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="text-slate-500">Equip.</p>
-                <p className="font-black text-cyan-300">{fmtNum(detalheHash.itens, 2)}</p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="text-slate-500">Bônus</p>
-                <p className="font-black text-emerald-300">+{fmtNum(detalheHash.bonusPct * 100, 0)}%</p>
+
+              {/* ── PAINEL TECNOLÓGICO DE MINERAÇÃO (Animação Dinâmica) ── */}
+              <div className="col-span-2 relative flex items-center justify-between overflow-hidden rounded-xl border border-fuchsia-500/20 bg-[#060411] p-2.5 shadow-[inset_0_0_20px_rgba(0,0,0,0.8)]">
+                <div className="absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(217,70,239,.2)_1px,transparent_1px),linear-gradient(90deg,rgba(34,211,238,.2)_1px,transparent_1px)] [background-size:12px_12px]" />
+                
+                <div className="relative flex items-center gap-3 text-left">
+                  {/* Núcleo rotativo sincronizado com o Hashrate */}
+                  <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/50 shadow-[0_0_10px_rgba(34,211,238,0.2)]">
+                    <div
+                      className="absolute inset-1 rounded-full border-2 border-dashed border-cyan-400/70 transition-all"
+                      style={{
+                        animation: minerandoAtivo ? `girar ${Math.max(1, 10 - hashrate)}s linear infinite` : "none",
+                        opacity: minerandoAtivo ? 1 : 0.3
+                      }}
+                    />
+                    <div
+                      className="absolute inset-2 rounded-full border border-fuchsia-400/50 transition-all"
+                      style={{
+                        animation: minerandoAtivo ? `girar ${Math.max(0.5, 5 - hashrate * 0.5)}s linear infinite reverse` : "none",
+                        opacity: minerandoAtivo ? 1 : 0.3
+                      }}
+                    />
+                    <span className="relative z-10 text-[10px] font-black text-white">{minerandoAtivo ? "ON" : "OFF"}</span>
+                  </div>
+
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Núcleo MAS</p>
+                    <div className="mt-0.5 flex gap-1">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="h-1.5 w-3 rounded-sm transition-all duration-300"
+                          style={{
+                            backgroundColor: minerandoAtivo
+                              ? i < Math.min(5, Math.ceil(hashrate * 2))
+                                ? "#22d3ee" // Aceso (Cyan)
+                                : "#475569" // Apagado
+                              : "#1e293b",
+                            boxShadow: minerandoAtivo && i < Math.min(5, Math.ceil(hashrate * 2)) ? "0 0 8px #22d3ee" : "none",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative text-right">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Bônus</p>
+                  <p className="font-black text-emerald-300">+{fmtNum(detalheHash.bonusPct * 100, 0)}%</p>
+                </div>
               </div>
             </div>
           </div>
@@ -266,7 +309,7 @@ export default function MiningView() {
               <div className="rounded-2xl border border-white/10 bg-black/30 p-8 text-center">
                 <div className="text-5xl opacity-50">🚫</div>
                 <p className="mt-3 font-bold text-white">Mineração por clique desativada</p>
-                <p className="text-sm text-slate-400">Este recurso está temporariamente indisponível.</p>
+                <p className="text-sm text-slate-400">A administração desabilitou este recurso.</p>
               </div>
             )}
           </div>

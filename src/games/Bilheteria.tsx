@@ -187,7 +187,7 @@ export default function Bilheteria() {
       <Card className="py-12 text-center">
         <div className="text-5xl opacity-50">🎟️</div>
         <p className="mt-3 font-black text-white">Bilheteria desativada</p>
-        <p className="text-sm text-slate-400">A bilheteria está temporariamente indisponível.</p>
+        <p className="text-sm text-slate-400">A administração fechou temporariamente a bilheteria.</p>
       </Card>
     );
 
@@ -237,7 +237,7 @@ export default function Bilheteria() {
               {rodada?.encerrada ? (
                 <p className="mt-1 text-2xl font-black text-rose-400">Rodada encerrada</p>
               ) : rodada?.pausada ? (
-                <p className="mt-1 text-2xl font-black text-amber-400">⏸ Sorteio pausado</p>
+                <p className="mt-1 text-2xl font-black text-amber-400">⏸ Pausado pelo Admin</p>
               ) : (
                 <div className="mt-2 flex gap-2">
                   {([

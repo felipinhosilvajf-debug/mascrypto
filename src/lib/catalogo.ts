@@ -5,17 +5,7 @@
    no Firestore (config/global) e sincronização via onSnapshot.
    ============================================================ */
 
-export type Categoria =
-  | "camisa"
-  | "calca"
-  | "sapato"
-  | "chapeu"
-  | "oculos"
-  | "movel"
-  | "gpu"
-  | "periferico"
-  | "avatar"
-  | "outro";
+export type Categoria = "avatar" | "gpu" | "periferico" | "movel";
 
 export const CATEGORIAS: {
   id: Categoria;
@@ -24,26 +14,17 @@ export const CATEGORIAS: {
   slot: string | null;
   geraHS: boolean;
 }[] = [
-  { id: "camisa", nome: "Camisas", emoji: "👕", slot: "camisa", geraHS: false },
-  { id: "calca", nome: "Calças", emoji: "👖", slot: "calca", geraHS: false },
-  { id: "sapato", nome: "Sapatos", emoji: "👟", slot: "sapato", geraHS: false },
-  { id: "chapeu", nome: "Chapéus", emoji: "🎩", slot: "chapeu", geraHS: false },
-  { id: "oculos", nome: "Óculos", emoji: "🕶️", slot: "oculos", geraHS: false },
-  { id: "movel", nome: "Móveis", emoji: "🪑", slot: null, geraHS: false },
+  { id: "avatar", nome: "Avatares Premium", emoji: "👤", slot: "avatar", geraHS: true },
   { id: "gpu", nome: "Placas de vídeo", emoji: "🖥️", slot: "gpu", geraHS: true },
-  { id: "periferico", nome: "Periféricos", emoji: "🖱️", slot: "periferico", geraHS: true },
-  { id: "avatar", nome: "Avatares", emoji: "👤", slot: null, geraHS: true },
-  { id: "outro", nome: "Outros acessórios", emoji: "🧩", slot: "pet", geraHS: true },
+  { id: "periferico", nome: "Hardware", emoji: "🖱️", slot: "periferico", geraHS: true },
+  { id: "movel", nome: "Móveis", emoji: "🪑", slot: null, geraHS: false },
 ];
 
 export const GRUPOS_ADMIN: { id: string; nome: string; cats: Categoria[] }[] = [
-  { id: "roupas", nome: "👕 Roupas", cats: ["camisa", "calca", "sapato"] },
-  { id: "acessorios", nome: "🎩 Acessórios", cats: ["chapeu", "oculos"] },
-  { id: "avatares", nome: "👤 Avatares Customizados", cats: ["avatar"] },
+  { id: "avatares", nome: "👤 Avatares Premium", cats: ["avatar"] },
   { id: "gpus", nome: "🖥️ Placas de vídeo", cats: ["gpu"] },
+  { id: "perifericos", nome: "🖱️ Hardware", cats: ["periferico"] },
   { id: "moveis", nome: "🪑 Móveis", cats: ["movel"] },
-  { id: "perifericos", nome: "🖱️ Periféricos", cats: ["periferico"] },
-  { id: "outros", nome: "🧩 Outros", cats: ["outro"] },
 ];
 
 export function infoCategoria(c: Categoria) {
@@ -97,6 +78,11 @@ export interface ItemLoja {
   requisito: string;
   /** Slot de equipamento (derivado da categoria, sobrescrevível). */
   slot: string | null;
+  /** Ajustes visuais definidos exclusivamente pelo Admin. */
+  offsetX?: number;
+  offsetY?: number;
+  escala?: number;
+  zIndex?: number;
   /** Pode ser posicionado no quarto virtual. */
   decorativo: boolean;
 }
@@ -116,29 +102,21 @@ const mk = (p: Partial<ItemLoja> & { id: string; nome: string; categoria: Catego
     estoque: -1,
     requisito: "",
     slot: info.slot,
+    offsetX: 0,
+    offsetY: 0,
+    escala: 1,
+    zIndex: info.slot === "costas" ? 5 : info.slot ? 30 : 10,
     decorativo: p.categoria === "movel",
     ...p,
   } as ItemLoja;
 };
 
 export const ITENS_PADRAO: ItemLoja[] = [
-  // ---------- CAMISAS ----------
-  mk({ id: "camisa_hodl", nome: "Camiseta HODL", categoria: "camisa", emoji: "👕", preco: 350, nivelMin: 1, desc: "Algodão premium com estampa HODL." }),
-  mk({ id: "camisa_neon", nome: "Jaqueta Neon", categoria: "camisa", emoji: "🧥", preco: 2400, nivelMin: 6, desc: "Jaqueta cyberpunk com fios de LED." }),
-  mk({ id: "camisa_terno", nome: "Terno do Magnata", categoria: "camisa", emoji: "🤵", preco: 18000, nivelMin: 20, desc: "Alfaiataria para grandes investidores." }),
-  // ---------- CALÇAS ----------
-  mk({ id: "calca_jeans", nome: "Jeans do Minerador", categoria: "calca", emoji: "👖", preco: 420, nivelMin: 1, desc: "Resistente à rotina de mineração." }),
-  mk({ id: "calca_tatica", nome: "Calça Tática Cyber", categoria: "calca", emoji: "🥾", preco: 3100, nivelMin: 9, desc: "Bolsos para cold wallets." }),
-  // ---------- SAPATOS ----------
-  mk({ id: "tenis_hash", nome: "Tênis HashRunner", categoria: "sapato", emoji: "👟", preco: 900, nivelMin: 3, desc: "Corre mais rápido que o mercado." }),
-  mk({ id: "bota_lunar", nome: "Bota Lunar", categoria: "sapato", emoji: "🥿", preco: 7600, nivelMin: 15, desc: "Feita para pisar na Lua. 🌕" }),
-  // ---------- CHAPÉUS ----------
-  mk({ id: "bone_mas", nome: "Boné MAS", categoria: "chapeu", emoji: "🧢", preco: 300, nivelMin: 1, desc: "O clássico boné da rede." }),
-  mk({ id: "coroa", nome: "Coroa da Baleia", categoria: "chapeu", emoji: "👑", preco: 50000, nivelMin: 30, desc: "Só para quem move o mercado." }),
-  mk({ id: "cartola", nome: "Cartola do Cassino", categoria: "chapeu", emoji: "🎩", preco: 6200, nivelMin: 12, desc: "Sorte e elegância." }),
-  // ---------- ÓCULOS ----------
-  mk({ id: "oculos_cyber", nome: "Óculos Cyber", categoria: "oculos", emoji: "🕶️", preco: 1500, nivelMin: 4, desc: "Enxergue os candles em 4D." }),
-  mk({ id: "oculos_vr", nome: "Visor VR MAS", categoria: "oculos", emoji: "🥽", preco: 9800, nivelMin: 18, desc: "Metaverso da rede MAS." }),
+  // ---------- AVATARES PREMIUM (skins inteiras) ----------
+  mk({ id: "avatar_neon", nome: "Avatar Neon Mask", categoria: "avatar", emoji: "🤖", preco: 1500, nivelMin: 2, bonusPct: 0.01, desc: "Skin completa de estilo cyberpunk." }),
+  mk({ id: "avatar_guerreiro", nome: "Avatar Guerreiro", categoria: "avatar", emoji: "🛡️", preco: 4800, nivelMin: 5, bonusPct: 0.02, desc: "Skin de batalha com escudo neon." }),
+  mk({ id: "avatar_dragao", nome: "Avatar Dragão Mítico", categoria: "avatar", emoji: "🐉", preco: 32000, nivelMin: 12, bonusPct: 0.05, desc: "Skin lendária. +5% de hashrate." }),
+  mk({ id: "avatar_baleia", nome: "Avatar Baleia", categoria: "avatar", emoji: "🐳", preco: 250000, nivelMin: 25, bonusPct: 0.1, desc: "Skin suprema dos whales. +10%." }),
   // ---------- MÓVEIS ----------
   mk({ id: "sofa", nome: "Sofá Neon", categoria: "movel", emoji: "🛋️", preco: 400, desc: "Conforto para longas sessões." }),
   mk({ id: "cama", nome: "Cama Cripto", categoria: "movel", emoji: "🛏️", preco: 650, desc: "Sonhos com velas verdes." }),
@@ -153,14 +131,10 @@ export const ITENS_PADRAO: ItemLoja[] = [
   mk({ id: "gpu_3060", nome: "MAS RTX 3060", categoria: "gpu", emoji: "🖥️", preco: 7800, nivelMin: 7, hs: 1.8, desc: "Custo-benefício da mineração." }),
   mk({ id: "gpu_4090", nome: "MAS RTX 4090 Ti", categoria: "gpu", emoji: "💽", preco: 42000, nivelMin: 16, hs: 9.5, desc: "Monstro de hashrate doméstico." }),
   mk({ id: "gpu_quantum", nome: "Placa Quântica X", categoria: "gpu", emoji: "🧊", preco: 260000, nivelMin: 28, hs: 48, desc: "Qubits minerando por você." }),
-  // ---------- PERIFÉRICOS (H/S) ----------
+  // ---------- HARDWARE / PERIFÉRICOS (H/S) ----------
   mk({ id: "mouse_hash", nome: "Mouse HashClick", categoria: "periferico", emoji: "🖱️", preco: 1100, nivelMin: 3, hs: 0.2, desc: "Cliques mais lucrativos." }),
   mk({ id: "teclado_rgb", nome: "Teclado RGB MAS", categoria: "periferico", emoji: "⌨️", preco: 2600, nivelMin: 6, hs: 0.6, desc: "RGB é hashrate visual." }),
   mk({ id: "cooler_pro", nome: "Cooler Ártico Pro", categoria: "periferico", emoji: "❄️", preco: 8400, nivelMin: 11, hs: 2.4, desc: "Mantém seu hardware gelado." }),
-  // ---------- OUTROS (pets / bônus %) ----------
-  mk({ id: "gato", nome: "Gato Minerador", categoria: "outro", emoji: "🐱", preco: 3000, nivelMin: 5, bonusPct: 0.02, desc: "+2% de mineração passiva." }),
-  mk({ id: "robo", nome: "Robô Assistente", categoria: "outro", emoji: "🤖", preco: 9000, nivelMin: 10, bonusPct: 0.05, desc: "+5% de mineração passiva." }),
-  mk({ id: "dragao", nome: "Dragão do Hash", categoria: "outro", emoji: "🐉", preco: 25000, nivelMin: 22, bonusPct: 0.08, desc: "+8% de mineração passiva." }),
 ];
 
 /* ------------------- JOGOS DO CASSINO ------------------- */
@@ -415,6 +389,19 @@ export interface ConfigVisual {
   iconeMineradores?: string;
 }
 
+export interface ConfigAparenciaSite {
+  primaria: string;
+  secundaria: string;
+  fundo: string;
+  card: string;
+  texto: string;
+  borda: string;
+  botaoInicio: string;
+  botaoFim: string;
+  neonAtivo: boolean;
+  neonIntensidade: number;
+}
+
 /** Fontes disponíveis para a plataforma. */
 export const FONTES_DISPONIVEIS = [
   { id: "system", nome: "Padrão do sistema", css: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
@@ -512,6 +499,8 @@ export interface ConfigGlobal {
   bilheteria: ConfigBilheteria;
   overrides: ConfigOverrides;
   visual: ConfigVisual;
+  /** Variáveis CSS globais administráveis para toda a plataforma. */
+  aparencia: ConfigAparenciaSite;
   /** Configuração completa da Index/Login/Cadastro. */
   landing: ConfigLanding;
   /** Ativação/desativação individual de abas e módulos do site. */
@@ -620,6 +609,18 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     iconeCirculacao: "🪙",
     iconeApostas: "🎲",
     iconeMineradores: "⛏️",
+  },
+  aparencia: {
+    primaria: "#d946ef",
+    secundaria: "#22d3ee",
+    fundo: "#05040c",
+    card: "#0f172a",
+    texto: "#e2e8f0",
+    borda: "#ffffff14",
+    botaoInicio: "#c026d3",
+    botaoFim: "#4f46e5",
+    neonAtivo: true,
+    neonIntensidade: 0.65,
   },
   landing: {
     marca: "MAScrypto",

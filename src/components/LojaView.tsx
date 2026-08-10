@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
-import { CATEGORIAS, RARIDADES, infoCategoria, infoRaridade, type Categoria, type ItemLoja, type Raridade } from "../lib/catalogo";
+import { RARIDADES, infoCategoria, infoRaridade, type Categoria, type ItemLoja, type Raridade } from "../lib/catalogo";
 import { fmtHS, fmtMAS, nivelPorXp } from "../lib/economia";
-import { Abas, ArteItem, Barra, Botao, Card, Input, Modal, Selo, Vazio } from "./UI";
+import { ArteItem, Barra, Botao, Card, Input, Modal, Selo, Vazio } from "./UI";
 import { cn } from "../utils/cn";
 
 type FiltroCat = "todos" | Categoria;
@@ -55,12 +55,14 @@ export default function LojaView() {
     return copia;
   }, [catalogo, filtro, filtroRar, busca, ordem]);
 
-  if (!data) return null;
-
-  const abasCat: { id: FiltroCat; nome: string; emoji: string }[] = [
-    { id: "todos", nome: "Todos", emoji: "✨" },
-    ...CATEGORIAS.map((c) => ({ id: c.id as FiltroCat, nome: c.nome, emoji: c.emoji })),
+  const homeRpg: { id: Categoria; nome: string; emoji: string; desc: string }[] = [
+    { id: "avatar", nome: "Avatares Premium", emoji: "👤", desc: "Skins completas de personagem" },
+    { id: "gpu", nome: "Placas de Vídeo", emoji: "🖥️", desc: "GPUs de mineração + H/s" },
+    { id: "periferico", nome: "Hardware", emoji: "🖱️", desc: "Periféricos e rigs" },
+    { id: "movel", nome: "Móveis", emoji: "🛋️", desc: "Decore seu quarto" },
   ];
+
+  if (!data) return null;
 
   return (
     <div className="space-y-5">
@@ -69,7 +71,7 @@ export default function LojaView() {
           <div>
             <h2 className="text-2xl font-black text-white">🛒 MAS Market</h2>
             <p className="text-sm text-slate-400">
-              Equipamentos aumentam seu H/s · roupas definem seu estilo no quarto virtual · avatares mudam seu perfil
+              Avatares inteiros, GPUs, hardware e móveis — tudo sincronizado com seu perfil e mineração.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -85,7 +87,7 @@ export default function LojaView() {
         </div>
         {!cfg.lojaAtiva && (
           <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-200">
-            ⚠️ A loja está temporariamente indisponível.
+            ⚠️ A loja está temporariamente fechada pela administração.
           </p>
         )}
       </Card>
@@ -146,7 +148,35 @@ export default function LojaView() {
         </div>
       </Card>
 
-      <Abas abas={abasCat} ativa={filtro} onChange={setFiltro} />
+      {/* Navegação RPG Futurista / Cyberpunk */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {homeRpg.map((c) => {
+          const ativo = filtro === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setFiltro(ativo ? "todos" : c.id)}
+              className={`group relative overflow-hidden rounded-2xl border-2 p-4 text-left transition-all duration-300 hover:-translate-y-1 active:scale-[0.97] ${
+                ativo
+                  ? "border-fuchsia-400 bg-fuchsia-500/20 shadow-[0_0_30px_-6px_rgba(217,70,239,.7)]"
+                  : "border-white/10 bg-white/[0.03] hover:border-fuchsia-400/50 hover:shadow-[0_0_20px_-8px_rgba(217,70,239,.5)]"
+              }`}
+            >
+              <span className="pointer-events-none absolute -right-4 -top-4 text-6xl opacity-10 transition-transform duration-500 group-hover:scale-125 group-hover:opacity-20">
+                {c.emoji}
+              </span>
+              <div className={`text-3xl transition-transform duration-300 group-hover:scale-110 ${ativo ? "drop-shadow-[0_0_12px_rgba(217,70,239,.9)]" : ""}`}>
+                {c.emoji}
+              </div>
+              <p className={`mt-2 text-sm font-black ${ativo ? "text-white" : "text-slate-200"}`}>{c.nome}</p>
+              <p className="text-[11px] text-slate-400">{c.desc}</p>
+              <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-fuchsia-300/80">
+                {ativo ? "● Aberto" : "▸ Explorar"}
+              </p>
+            </button>
+          );
+        })}
+      </div>
 
       {itens.length === 0 ? (
         <Card><Vazio emoji="📦" titulo="Nenhum item encontrado" texto="Ajuste a busca ou os filtros." /></Card>

@@ -199,6 +199,10 @@ export default function AvatarAdmin() {
     estoque: -1,
     requisito: "",
     slot: null,
+    offsetX: 0,
+    offsetY: 0,
+    escala: 1,
+    zIndex: 10,
     decorativo: false,
   });
 

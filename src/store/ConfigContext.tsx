@@ -48,6 +48,7 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     bilheteria: { ...CONFIG_PADRAO.bilheteria, ...(bruto?.bilheteria || {}) },
     overrides: { ...CONFIG_PADRAO.overrides, ...(bruto?.overrides || {}) },
     visual: { ...CONFIG_PADRAO.visual, ...(bruto?.visual || {}) },
+    aparencia: { ...CONFIG_PADRAO.aparencia, ...(bruto?.aparencia || {}) },
     landing: {
       ...CONFIG_PADRAO.landing,
       ...(bruto?.landing || {}),
@@ -71,7 +72,18 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
   if (c.grafico.janela > 240) c.grafico.janela = 240;
   if (c.grafico.suavizacao < 0) c.grafico.suavizacao = 0;
   if (c.grafico.suavizacao > 0.98) c.grafico.suavizacao = 0.98;
-  c.itens = Array.isArray(bruto?.itens) && bruto!.itens.length ? bruto!.itens : ITENS_PADRAO;
+  const itensBrutos = Array.isArray(bruto?.itens) && bruto!.itens.length ? bruto!.itens : ITENS_PADRAO;
+  c.itens = itensBrutos.map((item) => {
+    const slot = item.slot === "chapeu" ? "cabeca" : item.slot === "oculos" ? "rosto" : item.slot;
+    return {
+      ...item,
+      slot,
+      offsetX: Number(item.offsetX) || 0,
+      offsetY: Number(item.offsetY) || 0,
+      escala: Number(item.escala) > 0 ? Number(item.escala) : 1,
+      zIndex: Number.isFinite(Number(item.zIndex)) ? Number(item.zIndex) : slot === "costas" ? 5 : slot ? 30 : 10,
+    };
+  });
   c.banners = Array.isArray(bruto?.banners) && bruto!.banners.length ? bruto!.banners : BANNERS_PADRAO;
 
   // Migra jogos: versões antigas guardavam boolean (ativo); agora guardam JogoConfig completo.
@@ -107,6 +119,28 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     const f = FONTES_DISPONIVEIS.find((x) => x.id === (cfg.visual?.fonte || "system"));
     document.documentElement.style.fontFamily = f?.css || "";
   }, [cfg.visual?.fonte]);
+
+  /* Variáveis CSS globais controladas pelo Admin. */
+  useEffect(() => {
+    const a = cfg.aparencia;
+    const root = document.documentElement;
+    const rgba = (hex: string, alpha: number) => {
+      const h = hex.replace("#", "");
+      if (!/^[0-9a-f]{6}$/i.test(h)) return "rgba(217,70,239,0.65)";
+      const n = parseInt(h, 16);
+      return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+    };
+    root.style.setProperty("--mas-primary", a.primaria);
+    root.style.setProperty("--mas-secondary", a.secundaria);
+    root.style.setProperty("--mas-bg", a.fundo);
+    root.style.setProperty("--mas-card", a.card);
+    root.style.setProperty("--mas-text", a.texto);
+    root.style.setProperty("--mas-border", a.borda);
+    root.style.setProperty("--mas-button-start", a.botaoInicio);
+    root.style.setProperty("--mas-button-end", a.botaoFim);
+    root.style.setProperty("--mas-neon-alpha", String(a.neonAtivo ? a.neonIntensidade : 0));
+    root.style.setProperty("--mas-neon-shadow", rgba(a.primaria, a.neonAtivo ? a.neonIntensidade : 0));
+  }, [cfg.aparencia]);
 
   // Firestore é a fonte oficial; localStorage é apenas cache/fallback offline.
   useEffect(() => {

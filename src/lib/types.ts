@@ -27,12 +27,8 @@ export const STATUS_QUARTO = [
  * Placas de vídeo e periféricos de mineração NÃO entram aqui — vão para os slots do quarto.
  */
 export const SLOTS_RPG: { id: string; nome: string; emoji: string }[] = [
-  { id: "chapeu",   nome: "Chapéu",      emoji: "🎩" },
-  { id: "oculos",   nome: "Óculos",      emoji: "🕶️" },
-  { id: "camisa",   nome: "Camisa",      emoji: "👕" },
-  { id: "calca",    nome: "Calça",       emoji: "👖" },
-  { id: "sapato",   nome: "Sapato",      emoji: "👟" },
-  { id: "pet",      nome: "Companheiro", emoji: "🧩" },
+  /* Sistema simplificado: o jogador equipa somente Avatares Inteiros (skins).
+     Este array permanece para compatibilidade, mas NÃO há itens de vestuário. */
 ];
 
 /**
@@ -73,6 +69,11 @@ export interface UserData {
   itens: string[]; // inventário (ids do catálogo)
   equipados: Record<string, string>; // slot -> itemId
   tema: string;
+  /** Cores personalizadas do ambiente do quarto (definidas somente pelo anfitrião). */
+  quartoFundo: string;
+  quartoPiso: string;
+  /** Textura do piso selecionada pelo anfitrião. */
+  quartoTextura: "grid" | "madeira" | "metal" | "liso";
   quarto: Record<string, { x: number; y: number }>;
   avatarPos: { x: number; y: number };
   lastMsg?: string;
@@ -125,6 +126,9 @@ export function novoUsuario(uid: string, nome: string, email: string, saldoInici
     itens: [],
     equipados: {},
     tema: "neon",
+    quartoFundo: "#111827",
+    quartoPiso: "#172033",
+    quartoTextura: "grid",
     quarto: {},
     avatarPos: { x: 4, y: 3 },
     slotsHardware: {},
@@ -169,6 +173,11 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
     : [];
   d.equipados = d.equipados && typeof d.equipados === "object" ? d.equipados : {};
   d.quarto = d.quarto && typeof d.quarto === "object" ? d.quarto : {};
+  d.quartoFundo = typeof d.quartoFundo === "string" && d.quartoFundo ? d.quartoFundo : "#111827";
+  d.quartoPiso = typeof d.quartoPiso === "string" && d.quartoPiso ? d.quartoPiso : "#172033";
+  d.quartoTextura = ["grid", "madeira", "metal", "liso"].includes(d.quartoTextura)
+    ? d.quartoTextura
+    : "grid";
   d.slotsHardware = (d as any).slotsHardware && typeof (d as any).slotsHardware === "object"
     ? (d as any).slotsHardware
     : {};

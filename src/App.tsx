@@ -14,8 +14,7 @@ import AdminView from "./components/AdminView";
 import SuporteView from "./components/SuporteView";
 import MundoView from "./components/MundoView";
 import TermosModal, { TERMOS_VERSAO } from "./components/TermosModal";
-import ProfileCustomizationModal from "./components/ProfileCustomizationModal";
-import { AvatarVisual, Botao, Card, PillSaldo } from "./components/UI";
+import { AvatarVisual, Botao, Card, Input, PillSaldo } from "./components/UI";
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, progressoNivel } from "./lib/economia";
 import { cn } from "./utils/cn";
 
@@ -137,14 +136,16 @@ function Shell() {
     online,
     hashrate,
     ehAdmin,
+    desbloquearAdmin,
     aceitarTermos,
   } = useApp();
   const { tema } = useTema();
   const [pag, setPag] = useState("inicio");
   /** UID do quarto que está sendo visitado (null = próprio quarto / anfitrião). */
   const [quartoVisitado, setQuartoVisitado] = useState<string | null>(null);
+  const [abrirAvatar, setAbrirAvatar] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [perfilAberto, setPerfilAberto] = useState(false);
+  const [codigo, setCodigo] = useState("");
   const [, forcar] = useState(0);
 
   const temaInfo = TEMA_CLASSES[tema];
@@ -162,7 +163,10 @@ function Shell() {
   useEffect(() => {
     if (pag === "admin" && !ehAdmin) setPag("inicio");
     // Sair da aba Quarto encerra a visita e volta ao modo anfitrião
-    if (pag !== "quarto") setQuartoVisitado(null);
+    if (pag !== "quarto") {
+      setQuartoVisitado(null);
+      setAbrirAvatar(false);
+    }
   }, [pag, ehAdmin]);
 
   if (carregando)
@@ -187,7 +191,7 @@ function Shell() {
           <div className="text-6xl">🚫</div>
           <h2 className="mt-3 text-2xl font-black text-white">Conta suspensa</h2>
           <p className="mt-2 text-sm text-slate-400">
-            Sua conta está temporariamente suspensa. Entre em contato com o suporte.
+            Sua conta foi suspensa pela administração. Entre em contato com o suporte.
           </p>
           <Botao variante="ghost" className="mt-5 w-full" onClick={sair}>
             Sair
@@ -253,7 +257,7 @@ function Shell() {
         : "bg-cyan-600/[0.12]";
 
   return (
-    <div className={cn("min-h-screen", bgMain, textMain)}>
+    <div className={cn("mas-app min-h-screen", bgMain, textMain)}>
       {/* Fundo vivo */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className={cn("absolute -left-40 top-0 h-[620px] w-[620px] animate-[flutua_14s_ease-in-out_infinite] rounded-full blur-[150px]", orb1)} />
@@ -398,21 +402,40 @@ function Shell() {
 
               <div className="mt-2 space-y-1.5">
                 <button
-                  onClick={() => {
-                    setMenu(false);
-                    setPerfilAberto(true);
-                  }}
+                  onClick={() => { setMenu(false); setQuartoVisitado(null); setAbrirAvatar(true); setPag("quarto"); }}
                   className="w-full rounded-xl bg-white/5 py-2 text-sm font-bold text-white hover:bg-white/10"
                 >
-                  ⚙️ Editar perfil
+                  🧍 Personalizar Avatar
                 </button>
-                {ehAdmin && (
+                {ehAdmin ? (
                   <button
                     onClick={() => { setMenu(false); setPag("admin"); }}
                     className="w-full rounded-xl bg-cyan-500/15 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/25"
                   >
                     🛡️ Painel administrativo
                   </button>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <Input
+                      placeholder="Código admin"
+                      value={codigo}
+                      onChange={(e) => setCodigo(e.target.value)}
+                      className="py-1.5 text-xs"
+                    />
+                    <Botao
+                      variante="ghost"
+                      className="px-3 py-1.5 text-xs"
+                      onClick={() => {
+                        if (desbloquearAdmin(codigo)) {
+                          toast("Modo administrador liberado 🛡️", "ok");
+                          setMenu(false);
+                        } else toast("Código inválido", "erro");
+                        setCodigo("");
+                      }}
+                    >
+                      OK
+                    </Botao>
+                  </div>
                 )}
                 <button
                   onClick={sair}
@@ -435,6 +458,8 @@ function Shell() {
           <VirtualRoomView
             hostId={quartoVisitado ?? undefined}
             onSair={() => setQuartoVisitado(null)}
+            abrirPersonalizacao={abrirAvatar}
+            onPersonalizacaoAberta={() => setAbrirAvatar(false)}
           />
         )}
         {pag === "mundo" && (
@@ -450,11 +475,6 @@ function Shell() {
         {pag === "ranking" && <Ranking />}
         {pag === "admin" && ehAdmin && <AdminView />}
       </main>
-
-      <ProfileCustomizationModal
-        aberto={perfilAberto}
-        onFechar={() => setPerfilAberto(false)}
-      />
 
       <footer className="relative border-t border-white/[0.07] py-8 text-center text-xs text-slate-500">
         <p className="flex items-center justify-center gap-2 font-bold text-slate-400">

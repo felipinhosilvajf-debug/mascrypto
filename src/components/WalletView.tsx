@@ -142,7 +142,7 @@ export default function WalletView() {
             {[["Conversão", `${fmtNum(taxa * 100, 2)}%`], ["Depósito mínimo", fmtBRL(depositoMinimo)], ["Saque mínimo", fmtBRL(saqueMinimo)]].map(([k,v]) => (
               <div key={k} className="flex justify-between rounded-xl bg-white/5 p-2.5"><span className="text-slate-400">{k}</span><b className="text-white">{v}</b></div>
             ))}
-            <p className="text-[11px] text-slate-500">Depósitos e saques passam por análise antes da conclusão.</p>
+            <p className="text-[11px] text-slate-500">Depósitos e saques são analisados manualmente pela administração.</p>
           </div>
         </Card>
       </div>
@@ -294,7 +294,7 @@ export default function WalletView() {
       {aba === "depositar" && (
         <Card className="mx-auto max-w-2xl">
           <h3 className="font-black text-white">Solicitar depósito manual</h3>
-          <p className="mt-1 text-xs text-slate-400">Faça o PIX e envie a referência do comprovante. O saldo será creditado após a confirmação.</p>
+          <p className="mt-1 text-xs text-slate-400">Faça o PIX e envie a referência do comprovante. O saldo só será creditado após aprovação do Admin.</p>
           <div className="mt-4 space-y-3">
             <Campo label="Valor do PIX em R$" dica={`Mínimo ${fmtBRL(depositoMinimo)}`}>
               <Input type="number" min={depositoMinimo} step="0.01" value={valorDeposito} onChange={(e) => setValorDeposito(Math.max(0, Number(e.target.value)))} />

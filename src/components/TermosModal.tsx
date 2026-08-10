@@ -11,7 +11,7 @@ const CLAUSULAS = [
       "A MAScoin (MAS) é um crédito virtual/fictício de uso exclusivamente interno desta plataforma privada. " +
       "Não constitui moeda de curso legal, valor mobiliário, criptoativo negociável em mercados externos nem " +
       "promessa de rendimento. Seu valor, cotação, conversão e regras de uso são definidos e limitados " +
-      "estritamente ao ambiente do site, podendo ser ajustados pela plataforma a qualquer momento.",
+      "estritamente ao ambiente do site, podendo ser ajustados pela administração a qualquer momento.",
   },
   {
     titulo: "2. Plataforma em fase Beta",
@@ -26,7 +26,7 @@ const CLAUSULAS = [
     texto:
       "Ao aceitar estes termos, o usuário declara ciência e concordância integral com as regras vigentes, " +
       "com eventuais reajustes do sistema, com os termos de serviço e com a política de privacidade, " +
-      "isentando os operadores da plataforma de responsabilidades decorrentes de modificações, " +
+      "isentando os administradores e operadores de responsabilidades decorrentes de modificações, " +
       "instabilidades, perdas de progresso ou indisponibilidades próprias do ambiente Beta.",
   },
   {

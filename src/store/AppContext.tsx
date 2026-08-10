@@ -412,7 +412,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (atual && atual.atualizadoEm === remoto.atualizadoEm && atual.saldo === remoto.saldo)
             return atual;
           if (atual && (remoto.adminRev || 0) > (atual.adminRev || 0))
-            toast("⚡ Sua conta recebeu uma atualização", "info");
+            toast("⚡ Sua conta foi atualizada pela administração", "info");
           return remoto;
         });
         emitirBalanceUpdate();
@@ -432,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const anterior = statusPagamentos.current[p.id];
         if (anterior && anterior !== p.status) {
           if (p.status === "aprovado")
-            toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque concluído"}`, "ok");
+            toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque concluído"} pela administração`, "ok");
           if (p.status === "recusado")
             toast(
               `${p.tipo === "saque" ? "Saque recusado e estornado" : "Depósito recusado"}${p.motivoRecusa ? `: ${p.motivoRecusa}` : ""}`,
@@ -1078,7 +1078,7 @@ function checarConquistas(d: UserData): UserData {
       premio += CONQUISTAS.find((c) => c.id === id)?.premio || 0;
     }
   };
-  const roupas = ["camisa", "calca", "sapato", "chapeu", "oculos"].filter((s) => d.equipados?.[s]).length;
+  const roupas = ["cabeca", "rosto", "costas", "camisa", "calca", "sapato"].filter((s) => d.equipados?.[s]).length;
   check("primeiro", true);
   check("minerador", d.totalMinerado >= 1000);
   check("baleia", d.saldo >= 100000);

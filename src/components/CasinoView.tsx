@@ -107,7 +107,7 @@ export default function CasinoView() {
         <Vazio
           emoji="🛑"
           titulo="Jogos em manutenção"
-          texto="Os jogos estão temporariamente indisponíveis. Volte em breve!"
+          texto="A administração desativou temporariamente os jogos. Volte em breve!"
         />
       </Card>
     );
@@ -122,7 +122,7 @@ export default function CasinoView() {
               🎰 MAS <span className="bg-gradient-to-r from-amber-300 to-fuchsia-400 bg-clip-text text-transparent">Jogos</span>
             </h2>
             <p className="text-sm text-slate-400">
-              {disponiveis.length} jogos ativos · Pagamentos instantâneos em MAS
+              {disponiveis.length} jogos ativos · RTP configurável pela administração · pagamentos instantâneos em MAS
             </p>
           </div>
           <div className="flex gap-2">
@@ -151,7 +151,7 @@ export default function CasinoView() {
 
       {disponiveis.length === 0 ? (
         <Card>
-          <Vazio emoji="🚧" titulo="Nenhum jogo disponível" texto="Nenhum jogo está disponível no momento." />
+          <Vazio emoji="🚧" titulo="Nenhum jogo disponível" texto="Todos os jogos foram desativados pela administração." />
         </Card>
       ) : ativo ? null : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">

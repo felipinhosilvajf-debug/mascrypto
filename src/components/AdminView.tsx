@@ -16,7 +16,7 @@ import {
   type ItemLoja,
   type JogoConfig,
 } from "../lib/catalogo";
-import { SLOTS, type UserData } from "../lib/types";
+import { SLOTS, SLOTS_HARDWARE, SLOTS_RPG, type UserData } from "../lib/types";
 import { STATUS_TICKET, responderTicket, setStatusTicket, type Ticket } from "../lib/tickets";
 import {
   COLECAO_PAGAMENTOS,
@@ -27,6 +27,7 @@ import {
 import { fmtBRL, fmtHS, fmtMAS, fmtNum, nivelPorXp, patente, xpParaNivel } from "../lib/economia";
 import { RecompensaAdmin, BilheteriaAdmin } from "./AdminExtras";
 import AvatarAdmin from "./AvatarAdmin";
+import { AVATAR_SLOT_BASE, AvatarRenderer } from "./AvatarRenderer";
 import {
   Abas,
   ArteItem,
@@ -569,8 +570,8 @@ function itemVazio(): ItemLoja {
     id: `item_${Date.now().toString(36)}`,
     nome: "",
     desc: "",
-    categoria: "camisa",
-    emoji: "👕",
+    categoria: "avatar",
+    emoji: "👤",
     imagem: "",
     preco: 500,
     raridade: "comum",
@@ -580,7 +581,11 @@ function itemVazio(): ItemLoja {
     ativo: true,
     estoque: -1,
     requisito: "",
-    slot: "camisa",
+    slot: "avatar",
+    offsetX: 0,
+    offsetY: 0,
+    escala: 1,
+    zIndex: 30,
     decorativo: false,
   };
 }
@@ -706,7 +711,13 @@ function EditorItem({
   onFechar: () => void;
   onSalvar: (i: ItemLoja) => void;
 }) {
-  const [i, setI] = useState<ItemLoja>({ ...item });
+  const [i, setI] = useState<ItemLoja>({
+    ...item,
+    offsetX: item.offsetX ?? 0,
+    offsetY: item.offsetY ?? 0,
+    escala: item.escala ?? 1,
+    zIndex: item.zIndex ?? AVATAR_SLOT_BASE[item.slot || ""]?.z ?? 10,
+  });
   const set = <K extends keyof ItemLoja>(k: K, v: ItemLoja[K]) => setI((x) => ({ ...x, [k]: v }));
   const info = infoCategoria(i.categoria);
 
@@ -830,14 +841,21 @@ function EditorItem({
           <Campo label="Requisito adicional (texto)">
             <Input value={i.requisito} onChange={(e) => set("requisito", e.target.value)} placeholder="Ex.: Exclusivo VIP" />
           </Campo>
-          <Campo label="Slot de equipamento" dica="Vazio = item apenas decorativo">
+          <Campo label="Slot visual do item" dica="Definido exclusivamente pelo Admin">
             <select
               value={i.slot || ""}
-              onChange={(e) => set("slot", e.target.value || null)}
+              onChange={(e) => {
+                const slot = e.target.value || null;
+                setI((x) => ({
+                  ...x,
+                  slot,
+                  zIndex: slot ? AVATAR_SLOT_BASE[slot]?.z ?? x.zIndex ?? 10 : 10,
+                }));
+              }}
               className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none"
             >
-              <option value="">— nenhum (decorativo) —</option>
-              {SLOTS.map((s) => (
+              <option value="">— nenhum (móvel/decorativo) —</option>
+              {(i.categoria === "gpu" || i.categoria === "periferico" ? SLOTS_HARDWARE : SLOTS_RPG).map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.emoji} {s.nome}
                 </option>
@@ -845,6 +863,91 @@ function EditorItem({
             </select>
           </Campo>
         </div>
+
+        {/* ── Alinhamento visual exclusivo do Admin ── */}
+        {i.slot && SLOTS_RPG.some((s) => s.id === i.slot) && (
+          <div className="rounded-2xl border border-fuchsia-500/25 bg-fuchsia-500/[0.04] p-4">
+            <div className="mb-3">
+              <h4 className="font-black text-white">🎯 Alinhamento do item no avatar</h4>
+              <p className="text-[11px] text-slate-400">
+                Estes valores são salvos no catálogo e aplicados a todos os usuários. O jogador não pode alterá-los.
+              </p>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[1fr_210px]">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Campo label="Offset X (px)" dica="Negativo = esquerda · Positivo = direita">
+                  <Input
+                    type="number"
+                    step={1}
+                    value={i.offsetX ?? 0}
+                    onChange={(e) => set("offsetX", Number(e.target.value) || 0)}
+                  />
+                </Campo>
+                <Campo label="Offset Y (px)" dica="Negativo = cima · Positivo = baixo">
+                  <Input
+                    type="number"
+                    step={1}
+                    value={i.offsetY ?? 0}
+                    onChange={(e) => set("offsetY", Number(e.target.value) || 0)}
+                  />
+                </Campo>
+                <Campo label="Escala / Scale" dica="1,00 = tamanho original">
+                  <Input
+                    type="number"
+                    min={0.1}
+                    max={5}
+                    step={0.05}
+                    value={i.escala ?? 1}
+                    onChange={(e) => set("escala", Math.max(0.1, Number(e.target.value) || 1))}
+                  />
+                </Campo>
+                <Campo label="Camada / Z-Index" dica="Menor que 20 = atrás · Maior que 20 = frente">
+                  <Input
+                    type="number"
+                    min={-10}
+                    max={100}
+                    step={1}
+                    value={i.zIndex ?? 10}
+                    onChange={(e) => set("zIndex", Math.floor(Number(e.target.value) || 0))}
+                  />
+                </Campo>
+                <div className="col-span-full flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setI((x) => ({ ...x, offsetX: 0, offsetY: 0, escala: 1, zIndex: AVATAR_SLOT_BASE[x.slot || ""]?.z ?? 10 }))}
+                    className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:bg-white/10"
+                  >
+                    Resetar alinhamento
+                  </button>
+                  <span className="rounded-lg bg-white/5 px-2.5 py-1 text-[10px] text-slate-500">
+                    Slot: {SLOTS_RPG.find((s) => s.id === i.slot)?.nome}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Preview */}
+              <div>
+                <p className="mb-2 text-center text-[10px] font-black uppercase tracking-wider text-fuchsia-300">
+                  Pré-visualização ao vivo
+                </p>
+                <div className="relative mx-auto h-[205px] w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(217,70,239,.18),transparent_60%)]">
+                  <div className="absolute inset-x-0 bottom-2 mx-auto h-5 w-24 rounded-full bg-black/35 blur-sm" />
+                  <div className="absolute left-1/2 top-2 -translate-x-1/2">
+                    <AvatarRenderer
+                      avatar="🙂"
+                      equipados={i.slot ? { [i.slot]: i.id } : {}}
+                      itens={[i]}
+                      escalaGeral={0.9}
+                    />
+                  </div>
+                  <div className="absolute inset-x-0 bottom-2 text-center text-[9px] text-slate-500">
+                    X {i.offsetX ?? 0} · Y {i.offsetY ?? 0} · {Number(i.escala ?? 1).toFixed(2)}× · Z {i.zIndex ?? 10}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <Switch ligado={i.decorativo} onChange={(v) => set("decorativo", v)} rotulo="Pode ser posicionado no Quarto Virtual" />
 
@@ -2012,6 +2115,77 @@ function ConfigAdmin() {
         <p className="mt-2 text-[11px] text-slate-500">
           Os <b>valores numéricos</b> dessas métricas são controlados na seção “Ajustes e Métricas da Home (Overrides)”.
         </p>
+      </Card>
+
+      {/* Aparência global do site */}
+      <Card glow className="border-violet-500/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-white">🎨 Aparência / Tema do Site</h3>
+            <p className="text-sm text-slate-400">
+              Variáveis CSS globais aplicadas imediatamente em toda a plataforma.
+            </p>
+          </div>
+          <Switch
+            ligado={cfg.aparencia.neonAtivo}
+            onChange={(v) => salvarConfig({ aparencia: { ...cfg.aparencia, neonAtivo: v } })}
+            rotulo={cfg.aparencia.neonAtivo ? "Neon ativo" : "Neon desligado"}
+          />
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {([
+            ["primaria", "Cor primária"],
+            ["secundaria", "Cor secundária"],
+            ["fundo", "Fundo do site"],
+            ["card", "Fundo dos cards"],
+            ["texto", "Cor dos textos"],
+            ["borda", "Cor das bordas"],
+            ["botaoInicio", "Gradiente botão — início"],
+            ["botaoFim", "Gradiente botão — fim"],
+          ] as const).map(([key, label]) => (
+            <Campo key={key} label={label}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={cfg.aparencia[key].slice(0, 7)}
+                  onChange={(e) => salvarConfig({ aparencia: { ...cfg.aparencia, [key]: e.target.value } })}
+                  className="h-10 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
+                />
+                <Input
+                  value={cfg.aparencia[key]}
+                  onChange={(e) => salvarConfig({ aparencia: { ...cfg.aparencia, [key]: e.target.value } })}
+                />
+              </div>
+            </Campo>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          <Campo label={`Intensidade do brilho: ${Math.round(cfg.aparencia.neonIntensidade * 100)}%`}>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={cfg.aparencia.neonIntensidade}
+              disabled={!cfg.aparencia.neonAtivo}
+              onChange={(e) => salvarConfig({ aparencia: { ...cfg.aparencia, neonIntensidade: Number(e.target.value) } })}
+              className="w-full accent-fuchsia-500 disabled:opacity-40"
+            />
+          </Campo>
+        </div>
+
+        <div className="mt-4 rounded-2xl border p-4" style={{ background: cfg.aparencia.fundo, borderColor: cfg.aparencia.borda, color: cfg.aparencia.texto }}>
+          <p className="font-black">Pré-visualização do tema</p>
+          <p className="mt-1 text-sm opacity-70">Cards, texto, bordas e botões atualizam em tempo real.</p>
+          <button
+            className="mt-3 rounded-xl px-4 py-2 text-xs font-black text-white"
+            style={{ background: `linear-gradient(110deg, ${cfg.aparencia.botaoInicio}, ${cfg.aparencia.botaoFim})` }}
+          >
+            Botão de exemplo
+          </button>
+        </div>
       </Card>
 
       <Card>

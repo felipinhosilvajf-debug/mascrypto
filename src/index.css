@@ -5,8 +5,36 @@ html {
 }
 
 body {
-  background: #05040c;
+  background: var(--mas-bg, #05040c);
   -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --mas-primary: #d946ef;
+  --mas-secondary: #22d3ee;
+  --mas-bg: #05040c;
+  --mas-card: #0f172a;
+  --mas-text: #e2e8f0;
+  --mas-border: #ffffff14;
+  --mas-button-start: #c026d3;
+  --mas-button-end: #4f46e5;
+  --mas-neon-alpha: .65;
+  --mas-neon-shadow: rgba(217,70,239,.65);
+}
+
+.mas-app {
+  background-color: var(--mas-bg) !important;
+  color: var(--mas-text);
+}
+
+.mas-card {
+  border-color: var(--mas-border) !important;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--mas-card) 88%, white 12%), color-mix(in srgb, var(--mas-card) 96%, transparent)) !important;
+}
+
+.mas-btn-primary {
+  background: linear-gradient(110deg, var(--mas-button-start), var(--mas-button-end));
+  box-shadow: 0 6px 24px -8px var(--mas-neon-shadow);
 }
 
 /* ---------- animações globais ---------- */
@@ -195,3 +223,13 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] { -moz-appearance: textfield; }
 
 select option { background: #0b0918; }
+
+/* ── Chat de quarto: histórico fixo, sem truncamento ── */
+#chat-history {
+  word-break: break-word;
+  white-space: pre-wrap;
+  scroll-behavior: smooth;
+}
+#chat-history .username {
+  font-weight: 800;
+}

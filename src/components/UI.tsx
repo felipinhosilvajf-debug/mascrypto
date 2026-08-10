@@ -22,7 +22,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "relative rounded-3xl border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-5 backdrop-blur-2xl",
+        "mas-card relative rounded-3xl border border-white/[0.08] bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] p-5 backdrop-blur-2xl",
         "shadow-[0_8px_40px_-12px_rgba(0,0,0,0.8)]",
         glow && "border-fuchsia-500/25 shadow-[0_0_60px_-18px_rgba(217,70,239,0.75)]",
         hover && "transition-all duration-300 hover:-translate-y-1 hover:border-fuchsia-400/40",
@@ -45,7 +45,7 @@ export function Botao({
 }) {
   const v = {
     primario:
-      "bg-[linear-gradient(110deg,#c026d3,#7c3aed_55%,#4f46e5)] text-white shadow-[0_6px_24px_-8px_rgba(192,38,211,0.9)] hover:brightness-115",
+      "mas-btn-primary text-white hover:brightness-115",
     neon:
       "bg-transparent border border-cyan-400/50 text-cyan-200 hover:bg-cyan-400/10 hover:shadow-[0_0_20px_-4px_rgba(34,211,238,0.7)]",
     ghost: "bg-white/[0.06] border border-white/10 text-slate-200 hover:bg-white/[0.12]",
@@ -430,7 +430,7 @@ export function PillSaldo({ mas, brl }: { mas: number; brl: number }) {
     <div className="flex items-center gap-2">
       <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5">
         <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">Saldo MAS</p>
-        <p className="text-sm font-black text-emerald-300">{fmtMAS(mas)}</p>
+        <p className="text-sm font-black text-emerald-300">{fmtMAS(mas, 2)}</p>
       </div>
       <div className="hidden rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-1.5 sm:block">
         <p className="text-[9px] font-bold uppercase tracking-wider text-sky-400/80">Reais</p>
@@ -459,7 +459,7 @@ export function GraficoStatus({
   if (!ativo)
     return (
       <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">
-        Gráfico temporariamente pausado
+        Gráfico pausado pela administração
       </p>
     );
   const segundos = Math.max(0, intervaloMs / 1000);
