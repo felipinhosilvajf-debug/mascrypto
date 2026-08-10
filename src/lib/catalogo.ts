@@ -192,20 +192,20 @@ export interface JogoConfig {
   ativo: boolean;
   /**
    * Tabela de multiplicadores editável (Plinko, Roda, Torre…).
-   * Cada posição representa uma casa/pino/nível do jogo.
+   * Array vazio = jogo usa sua lógica interna padrão.
    */
-  multiplicadores?: number[];
+  multiplicadores: number[];
   /**
    * Ícones/símbolos internos do jogo (emoji ou URL de imagem).
-   * Chaves livres por jogo — ex.: `cara`, `coroa`, `bomba`, `diamante`, `esfera`.
+   * Objeto vazio = usa os ícones padrão do próprio jogo.
    */
-  icones?: Record<string, string>;
+  icones: Record<string, string>;
   /** Paleta visual individual do jogo. */
-  cores?: {
-    primaria?: string;
-    secundaria?: string;
-    fundo?: string;
-    brilho?: boolean;
+  cores: {
+    primaria: string;
+    secundaria: string;
+    fundo: string;
+    brilho: boolean;
   };
 }
 
@@ -236,7 +236,7 @@ export const ATALHOS_APOSTA_PADRAO: JogoConfig["atalhos"] = [
   { label: "MAX", op: "max"    },
 ];
 
-export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo" | "apostaPadrao" | "atalhos">[] = [
+export const JOGOS_META: Omit<JogoConfig, "capa" | "gif" | "ativo" | "apostaPadrao" | "atalhos" | "multiplicadores" | "icones" | "cores">[] = [
   { id: "crash", nome: "Crash", emoji: "🚀", desc: "Saque antes da explosão", tag: "Popular", rtp: 0.99, houseEdge: 0.01, apostaMin: 1, apostaMax: 100000 },
   { id: "mines", nome: "Mines", emoji: "💣", desc: "Ache os diamantes", tag: "Estratégia", rtp: 0.97, houseEdge: 0.03, apostaMin: 1, apostaMax: 100000 },
   { id: "slots", nome: "Caça-níqueis", emoji: "🎰", desc: "Até 50x no sete", tag: "Jackpot", rtp: 0.885, houseEdge: 0.115, apostaMin: 1, apostaMax: 50000 },
@@ -270,8 +270,8 @@ export function jogoPadrao(id: string): JogoConfig {
     capa: "",
     gif: "",
     ativo: true,
-    multiplicadores: MULTIPLICADORES_PADRAO[id] ? [...MULTIPLICADORES_PADRAO[id]] : undefined,
-    icones: ICONES_PADRAO[id] ? { ...ICONES_PADRAO[id] } : undefined,
+    multiplicadores: MULTIPLICADORES_PADRAO[id] ? [...MULTIPLICADORES_PADRAO[id]] : [],
+    icones: ICONES_PADRAO[id] ? { ...ICONES_PADRAO[id] } : {},
     cores: { primaria: "", secundaria: "", fundo: "", brilho: true },
   };
 }

@@ -18,6 +18,7 @@ import { SLOTS_RPG, STATUS_QUARTO, TEMAS, normalizar, type UserData } from "../l
 import { fmtHS, fmtMAS, nivelPorXp, patente, progressoNivel } from "../lib/economia";
 import { ArteItem, AvatarVisual, Barra, Botao, Card, Input, Modal, Selo } from "./UI";
 import { cn } from "../utils/cn";
+import { sanitize } from "../lib/sanitize";
 
 /* ─── Constantes do grid isométrico ─── */
 const COLS = 8;
@@ -117,13 +118,13 @@ export default function VirtualRoomView({
     const pRef = doc(db, "online_room", user.uid);
     const registrar = async () => {
       try {
-        await setDoc(pRef, {
-          uid: user.uid, nome: data.nome, avatar: data.avatar, avatarImg: data.avatarImg,
+        await setDoc(pRef, sanitize({
+          uid: user.uid, nome: data.nome, avatar: data.avatar, avatarImg: data.avatarImg || "",
           avatarPos: minhaPos, equipados: data.equipados || {},
           lastMsg: "", lastMsgTs: 0, status: data.status,
           nivel: nivelPorXp(data.xp),
-          sala: donoId, // ← instância do quarto em que está
-        } as JogadorOnline);
+          sala: donoId,
+        } as JogadorOnline));
       } catch { /* offline */ }
     };
     registrar();
@@ -254,11 +255,11 @@ export default function VirtualRoomView({
         texto: t.slice(0, 200), sala: salaId, ts: Date.now(),
       });
       // Atualiza o balão sobre a cabeça do avatar por 5 segundos
-      await setDoc(doc(db, "online_room", user.uid), {
+      await setDoc(doc(db, "online_room", user.uid), sanitize({
         uid: user.uid,
         nome: data.nome,
         avatar: data.avatar,
-        avatarImg: data.avatarImg,
+        avatarImg: data.avatarImg || "",
         avatarPos: minhaPos,
         equipados: data.equipados || {},
         lastMsg: t.slice(0, 120),
@@ -266,7 +267,7 @@ export default function VirtualRoomView({
         status: data.status,
         nivel: nivelPorXp(data.xp),
         sala: donoId,
-      } as JogadorOnline);
+      } as JogadorOnline));
       atualizar((d) => ({ ...d, lastMsg: t.slice(0, 120), lastMsgTs: Date.now() }));
       setTextoChat("");
     } catch { toast("Falha ao enviar mensagem", "erro"); }

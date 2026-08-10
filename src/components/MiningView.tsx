@@ -240,7 +240,7 @@ export default function MiningView() {
                     }`}
                     style={{ left: p.x, top: p.y }}
                   >
-                    {p.crit ? "CRÍTICO " : ""}+{fmtDinamico(p.v)} MAS
+                    {p.crit ? "CRÍTICO " : ""}+{fmtNum(p.v, 2)}
                   </span>
                 ))}
               </>

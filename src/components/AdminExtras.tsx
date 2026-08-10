@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
+import { sanitize } from "../lib/sanitize";
 import { fmtMAS } from "../lib/economia";
 import { Botao, Campo, Card, Input, Switch } from "./UI";
 

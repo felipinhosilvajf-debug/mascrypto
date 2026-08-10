@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { sanitize } from "../lib/sanitize";
 import {
   BANNERS_PADRAO,
   CONFIG_GRAFICO_PADRAO,
@@ -141,7 +142,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       const novo = mesclar({ ...atual, ...patch, atualizadoEm: Date.now() });
       localStorage.setItem(LS_CONFIG, JSON.stringify(novo));
       window.dispatchEvent(new Event("configUpdate"));
-      setDoc(doc(db, "config", "global"), novo, { merge: true }).catch(() => {});
+      // sanitize() remove undefined/NaN/Infinity antes de enviar ao Firestore
+      setDoc(doc(db, "config", "global"), sanitize(novo), { merge: true }).catch(() => {});
       return novo;
     });
   }, []);
@@ -153,7 +155,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       const novo = mesclar({ ...atual, itens, atualizadoEm: Date.now() });
       localStorage.setItem(LS_CONFIG, JSON.stringify(novo));
       window.dispatchEvent(new Event("configUpdate"));
-      setDoc(doc(db, "config", "global"), novo, { merge: true }).catch(() => {});
+      setDoc(doc(db, "config", "global"), sanitize(novo), { merge: true }).catch(() => {});
       return novo;
     });
   }, []);

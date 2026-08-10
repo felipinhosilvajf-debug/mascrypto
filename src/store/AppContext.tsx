@@ -37,6 +37,7 @@ import {
   type UserData,
 } from "../lib/types";
 import { fmtDinamico, nivelPorXp } from "../lib/economia";
+import { sanitize } from "../lib/sanitize";
 import { infoCategoria, type ConfigGlobal, type ItemLoja } from "../lib/catalogo";
 import { COLECAO_PAGAMENTOS, type PagamentoManual } from "../lib/pagamentos";
 import { useConfig } from "./ConfigContext";
@@ -228,7 +229,7 @@ export async function createUserDocument(uid: string, nome: string, email: strin
     const antigo = await getDoc(doc(db, COLECAO_LEGADA, uid));
     if (antigo.exists()) {
       const migrado = normalizar(antigo.data() as Partial<UserData>, uid);
-      await setDoc(ref, migrado);
+      await setDoc(ref, sanitize(migrado));
       return migrado;
     }
   } catch {
@@ -249,10 +250,7 @@ export async function createUserDocument(uid: string, nome: string, email: strin
 
   const novo = novoUsuario(uid, nome, email, saldoInicial);
   novo.admin = ADMIN_EMAILS.includes(email.toLowerCase());
-  // "Primeiros Passos" registrado no cadastro — sem prêmio em MAS pois o
-  // saldoInicial já é o bônus configurado pelo Admin.
-  novo.conquistas = ["primeiro"];
-  await setDoc(ref, novo);
+  await setDoc(ref, sanitize(novo));
   return novo;
 }
 
@@ -471,7 +469,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               ? normalizar(snap.data() as Partial<UserData>, u.uid)
               : novoUsuario(u.uid, u.displayName || "Anônimo", u.email || "");
             const novo = posProcessar(fn(base));
-            tx.set(ref, novo);
+            tx.set(ref, sanitize(novo));
             return novo;
           }),
         )
@@ -737,7 +735,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...base.historico,
           ].slice(0, 60),
         });
-        tx.set(ref, novo);
+        tx.set(ref, sanitize(novo));
         return { ja: false, premio, streak, novo };
       });
 
@@ -808,21 +806,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             moeda,
           };
 
-          tx.set(refOrigem, {
+          tx.set(refOrigem, sanitize({
             ...origem,
             saldo: moeda === "MAS" ? origem.saldo - valor : origem.saldo,
             brl: moeda === "BRL" ? origem.brl - valor : origem.brl,
             historico: [movOrigem, ...origem.historico].slice(0, 60),
             atualizadoEm: agora,
-          });
-          tx.set(refDestino, {
+          }));
+          tx.set(refDestino, sanitize({
             ...destino,
             saldo: moeda === "MAS" ? destino.saldo + valor : destino.saldo,
             brl: moeda === "BRL" ? destino.brl + valor : destino.brl,
             historico: [movDestino, ...destino.historico].slice(0, 60),
             adminRev: (destino.adminRev || 0) + 1,
             atualizadoEm: agora,
-          });
+          }));
         });
 
         emitirBalanceUpdate();
@@ -978,7 +976,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const atualRev = snap.exists() ? ((snap.data() as UserData).adminRev || 0) : 0;
       const alvo = normalizar({ ...u, adminRev: atualRev + 1 }, u.uid);
       alvo.atualizadoEm = Date.now();
-      tx.set(ref, alvo);
+      tx.set(ref, sanitize(alvo));
     });
     emitirBalanceUpdate();
   }, []);
@@ -1005,7 +1003,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           adminRev: (base.adminRev || 0) + 1,
           historico: [...hist, ...base.historico].slice(0, 60),
         });
-        tx.set(ref, novo);
+        tx.set(ref, sanitize(novo));
       });
       emitirBalanceUpdate();
     },
@@ -1073,9 +1071,7 @@ function checarConquistas(d: UserData): UserData {
     }
   };
   const roupas = ["camisa", "calca", "sapato", "chapeu", "oculos"].filter((s) => d.equipados?.[s]).length;
-  // "primeiro" é concedido apenas no momento da criação da conta
-  // (já incluído em novoUsuario/createUserDocument). Não deve ser
-  // reavaliado aqui para evitar creditar +100 MAS em toda nova sessão.
+  check("primeiro", true);
   check("minerador", d.totalMinerado >= 1000);
   check("baleia", d.saldo >= 100000);
   check("sortudo", d.vitorias >= 10);

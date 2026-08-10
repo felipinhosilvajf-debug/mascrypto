@@ -5,6 +5,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { sanitize } from "./sanitize";
 import { normalizar, type Transacao, type UserData } from "./types";
 
 export type TipoPagamento = "deposito" | "saque";
@@ -107,7 +108,7 @@ export async function solicitarSaqueManual(args: {
       },
       ...u.historico,
     ].slice(0, 60);
-    tx.set(uRef, { ...u, brl: u.brl - args.valorBRL, historico, atualizadoEm: agora });
+    tx.set(uRef, sanitize({ ...u, brl: u.brl - args.valorBRL, historico, atualizadoEm: agora }));
     tx.set(pedidoRef, {
       id: pedidoRef.id,
       uid: args.uid,
@@ -159,14 +160,14 @@ export async function aprovarPagamento(
         },
         ...u.historico,
       ].slice(0, 60);
-      tx.set(uRef, {
+      tx.set(uRef, sanitize({
         ...u,
         saldo: u.saldo + (emMAS ? valorCreditado : 0),
         brl: u.brl + (emMAS ? 0 : valorCreditado),
         historico,
         adminRev: (u.adminRev || 0) + 1,
         atualizadoEm: agora,
-      });
+      }));
     }
     tx.update(pRef, {
       status: "aprovado",
@@ -207,13 +208,13 @@ export async function recusarPagamento(
         },
         ...u.historico,
       ].slice(0, 60);
-      tx.set(uRef, {
+      tx.set(uRef, sanitize({
         ...u,
         brl: u.brl + atual.valorBRL,
         historico,
         adminRev: (u.adminRev || 0) + 1,
         atualizadoEm: agora,
-      });
+      }));
     }
     tx.update(pRef, {
       status: "recusado",
