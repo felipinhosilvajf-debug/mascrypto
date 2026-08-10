@@ -600,25 +600,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [atualizar]);
 
+  /**
+   * Resgata o saldo acumulado de mineração.
+   * Sem valor mínimo — o usuário coleta qualquer quantia maior que zero
+   * (ex.: 0,00004 MAS, 0,0001 MAS, 0,1 MAS, etc.). Aplica `sanitize`
+   * antes de persistir para evitar `undefined`/`NaN` no Firestore.
+   */
   const coletarMineracao = useCallback(() => {
     const d = dataRef.current;
     if (!d) return;
     const v = pendenteMineracao;
-    if (v <= 0.0001) {
+    if (!(v > 0)) {
       toast("Nada para coletar ainda ⛏️", "info");
       return;
     }
-    atualizar((u) => ({
-      ...u,
-      saldo: u.saldo + v,
-      totalMinerado: u.totalMinerado + v,
+    // Garante estado limpo antes de enviar ao Firestore
+    const limpo = sanitize({
+      ...d,
+      saldo: d.saldo + v,
+      totalMinerado: (d.totalMinerado || 0) + v,
       ultimaColeta: Date.now(),
-      xp: u.xp + Math.floor(v * (cfg.xpPorMAS || 0.2)),
+      xp: d.xp + Math.floor(v * (cfg.xpPorMAS || 0.2)),
       historico: [
         { t: "Mineração · Coleta", v, d: "Bloco processado", ts: Date.now(), moeda: "MAS" as const },
-        ...u.historico,
+        ...d.historico,
       ].slice(0, 60),
-    }));
+    });
+    atualizar(() => limpo as UserData);
     setPendenteMineracao(0);
     toast(`+${fmtDinamico(v)} MAS coletados ⛏️`, "ok");
   }, [atualizar, pendenteMineracao, cfg.xpPorMAS, toast]);

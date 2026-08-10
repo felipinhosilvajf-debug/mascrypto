@@ -65,6 +65,8 @@ export default function MiningView() {
     // UI soma na hora; a gravação é agrupada e persistida no Firestore
     minerarClique(v);
 
+    // Animação/toast do clique usa a precisão dinâmica (3 casas ou mais)
+    // para nunca exibir um valor residual como 0,00.
     const r = e.currentTarget.getBoundingClientRect();
     const id = agora + Math.random();
     setPops((p) => [
@@ -72,6 +74,10 @@ export default function MiningView() {
       { id, x: e.clientX - r.left, y: e.clientY - r.top, v, crit },
     ]);
     setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 900);
+    toast(
+      `+${fmtDinamico(v)} MAS${crit ? " 🔥 crítico!" : ""}`,
+      "info",
+    );
   };
 
 
@@ -164,7 +170,12 @@ export default function MiningView() {
                 >
                   {minerandoManual ? "⏸ Pausar Mineração" : "▶ Iniciar Mineração"}
                 </Botao>
-                <Botao variante="sucesso" onClick={coletar} disabled={pendente <= 0.0001}>
+                <Botao
+                  variante="sucesso"
+                  onClick={coletar}
+                  disabled={pendente <= 0}
+                  title={pendente > 0 ? "Coletar qualquer valor maior que zero" : "Nada para coletar ainda"}
+                >
                   Coletar {fmtDinamico(pendente)} MAS
                 </Botao>
                 {mc.boostAtivo && (
@@ -195,9 +206,16 @@ export default function MiningView() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] p-2.5">
+                <p className="text-[10px] text-slate-500">GPUs Instaladas</p>
+                <p className="font-black text-cyan-300">
+                  {Object.keys(data.slotsHardware || {}).length} <span className="text-[9px] text-slate-500">unidades</span>
+                </p>
+                <p className="text-[9px] text-cyan-200/80">+{fmtHS(detalheHash.hardwareSlots)}</p>
+              </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                <p className="text-slate-500">Equipamentos</p>
+                <p className="text-slate-500">Equip.</p>
                 <p className="font-black text-cyan-300">{fmtNum(detalheHash.itens, 2)}</p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
@@ -224,9 +242,9 @@ export default function MiningView() {
                 <p className="mt-4 text-center text-sm text-slate-400">
                   Clique para minerar ·{" "}
                   <b className="text-amber-300">
-                    {fmtMAS(mc.valorClique * (1 + (nivel - 1) * 0.05))}
-                  </b>{" "}
-                  por clique
+                    {fmtDinamico(mc.valorClique * (1 + (nivel - 1) * 0.05))} MAS
+                  </b>
+                  {" "}por clique
                 </p>
                 <p className="text-[11px] text-slate-500">
                   {fmtNum(mc.chanceCritico * 100, 0)}% de chance de crítico ×{mc.multCritico} ·{" "}
@@ -240,7 +258,7 @@ export default function MiningView() {
                     }`}
                     style={{ left: p.x, top: p.y }}
                   >
-                    {p.crit ? "CRÍTICO " : ""}+{fmtNum(p.v, 2)}
+                    {p.crit ? "CRÍTICO " : ""}+{fmtDinamico(p.v)} MAS
                   </span>
                 ))}
               </>
