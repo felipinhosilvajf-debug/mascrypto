@@ -46,7 +46,7 @@ export default function MiningView() {
 
   /* ---- MINERAÇÃO POR CLIQUE (configurável pelo Admin) ---- */
   const clicar = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!mc.cliqueAtivo) return toast("Mineração por clique desativada pela administração", "erro");
+    if (!mc.cliqueAtivo) return toast("Mineração por clique temporariamente indisponível", "erro");
     const agora = Date.now();
     if (agora - ultimoClique.current < mc.cooldownMs) return; // anti-spam por cooldown
     // anti-exploit: no máximo 12 cliques válidos por 2s
@@ -214,10 +214,10 @@ export default function MiningView() {
                 </p>
                 <p className="text-[9px] text-cyan-200/80">+{fmtHS(detalheHash.hardwareSlots)}</p>
               </div>
-              {/* <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
                 <p className="text-slate-500">Equip.</p>
                 <p className="font-black text-cyan-300">{fmtNum(detalheHash.itens, 2)}</p>
-              </div> PARTE DE EQUIPE ITENS MINERACAO*/}
+              </div>
               <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
                 <p className="text-slate-500">Bônus</p>
                 <p className="font-black text-emerald-300">+{fmtNum(detalheHash.bonusPct * 100, 0)}%</p>
@@ -266,7 +266,7 @@ export default function MiningView() {
               <div className="rounded-2xl border border-white/10 bg-black/30 p-8 text-center">
                 <div className="text-5xl opacity-50">🚫</div>
                 <p className="mt-3 font-bold text-white">Mineração por clique desativada</p>
-                <p className="text-sm text-slate-400">A administração desabilitou este recurso.</p>
+                <p className="text-sm text-slate-400">Este recurso está temporariamente indisponível.</p>
               </div>
             )}
           </div>

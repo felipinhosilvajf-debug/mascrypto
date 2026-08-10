@@ -106,8 +106,8 @@ export default function CasinoView() {
       <Card glow>
         <Vazio
           emoji="🛑"
-          titulo="Cassino em manutenção"
-          texto="A administração desativou temporariamente o cassino. Volte em breve!"
+          titulo="Jogos em manutenção"
+          texto="Os jogos estão temporariamente indisponíveis. Volte em breve!"
         />
       </Card>
     );
@@ -119,10 +119,10 @@ export default function CasinoView() {
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-black text-white sm:text-3xl">
-              🎰 MAS <span className="bg-gradient-to-r from-amber-300 to-fuchsia-400 bg-clip-text text-transparent">Casino Royale</span>
+              🎰 MAS <span className="bg-gradient-to-r from-amber-300 to-fuchsia-400 bg-clip-text text-transparent">Jogos</span>
             </h2>
             <p className="text-sm text-slate-400">
-              {disponiveis.length} jogos ativos · RTP configurável pela administração · pagamentos instantâneos em MAS
+              {disponiveis.length} jogos ativos · Pagamentos instantâneos em MAS
             </p>
           </div>
           <div className="flex gap-2">
@@ -145,13 +145,13 @@ export default function CasinoView() {
           className="sticky top-20 z-30 flex w-full items-center gap-2 rounded-2xl border border-fuchsia-400/40 bg-fuchsia-600/20 px-4 py-3 text-sm font-black text-white backdrop-blur-xl transition hover:bg-fuchsia-600/35 active:scale-[0.99]"
         >
           <span className="text-lg">←</span>
-          Voltar ao Cassino / Menu de Jogos
+          Voltar ao Menu de Jogos
         </button>
       )}
 
       {disponiveis.length === 0 ? (
         <Card>
-          <Vazio emoji="🚧" titulo="Nenhum jogo disponível" texto="Todos os jogos foram desativados pela administração." />
+          <Vazio emoji="🚧" titulo="Nenhum jogo disponível" texto="Nenhum jogo está disponível no momento." />
         </Card>
       ) : ativo ? null : (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">

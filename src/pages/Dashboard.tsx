@@ -209,7 +209,7 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
             {digitado}<span className="animate-pulse text-fuchsia-400">_</span>
           </p>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-400">
-            Uma economia digital viva: mineração, mercado, cassino e progressão RPG sincronizados em tempo real.
+            Uma economia digital viva: mineração, jogos, mercado e progressão RPG sincronizados em tempo real.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Botao className="group overflow-hidden" onClick={() => ir("mineracao")}>
@@ -345,7 +345,7 @@ export default function Dashboard({ ir }: { ir: (p: string) => void }) {
 
           <div className="relative mt-5 flex flex-wrap gap-2">
             <Botao onClick={() => ir("mineracao")}>⛏️ Minerar</Botao>
-            <Botao variante="ouro" onClick={() => ir("cassino")}>🎰 Cassino</Botao>
+            <Botao variante="ouro" onClick={() => ir("cassino")}>🎰 Jogos</Botao>
             <Botao variante="neon" onClick={() => ir("loja")}>🛒 Loja</Botao>
             <Botao variante="ghost" onClick={() => ir("carteira")}>💱 Carteira</Botao>
             <Botao variante="ghost" onClick={() => ir("quarto")}>🏠 Quarto</Botao>

@@ -412,7 +412,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (atual && atual.atualizadoEm === remoto.atualizadoEm && atual.saldo === remoto.saldo)
             return atual;
           if (atual && (remoto.adminRev || 0) > (atual.adminRev || 0))
-            toast("⚡ Sua conta foi atualizada pela administração", "info");
+            toast("⚡ Sua conta recebeu uma atualização", "info");
           return remoto;
         });
         emitirBalanceUpdate();
@@ -432,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const anterior = statusPagamentos.current[p.id];
         if (anterior && anterior !== p.status) {
           if (p.status === "aprovado")
-            toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque concluído"} pela administração`, "ok");
+            toast(`${p.tipo === "deposito" ? "Depósito creditado" : "Saque concluído"}`, "ok");
           if (p.status === "recusado")
             toast(
               `${p.tipo === "saque" ? "Saque recusado e estornado" : "Depósito recusado"}${p.motivoRecusa ? `: ${p.motivoRecusa}` : ""}`,
@@ -532,7 +532,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   /* ============================================================
      MOTOR DE MINERAÇÃO GLOBAL
      Roda no Provider (montado uma única vez), então continua ativo
-     em qualquer página interna: Início, Cassino, Quarto, Carteira...
+     em qualquer página interna: Início, Jogos, Quarto, Carteira...
      Só pausa quando o site fica oculto (troca de aba/app) ou o usuário
      clica em Pausar. Persistência do estado manual em localStorage.
      ============================================================ */
@@ -658,7 +658,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         xp: d.xp + Math.max(1, Math.floor(aposta * (cfg.xpPorAposta || 0.1))),
         historico: [
           {
-            t: `Cassino · ${jogo}`,
+            t: `Jogos · ${jogo}`,
             v: lucro,
             d: lucro > 0 ? "Vitória" : "Derrota",
             ts: Date.now(),

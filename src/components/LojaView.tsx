@@ -85,7 +85,7 @@ export default function LojaView() {
         </div>
         {!cfg.lojaAtiva && (
           <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-200">
-            ⚠️ A loja está temporariamente fechada pela administração.
+            ⚠️ A loja está temporariamente indisponível.
           </p>
         )}
       </Card>

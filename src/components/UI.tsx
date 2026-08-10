@@ -459,7 +459,7 @@ export function GraficoStatus({
   if (!ativo)
     return (
       <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">
-        Gráfico pausado pela administração
+        Gráfico temporariamente pausado
       </p>
     );
   const segundos = Math.max(0, intervaloMs / 1000);

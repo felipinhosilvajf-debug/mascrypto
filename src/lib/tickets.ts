@@ -36,7 +36,7 @@ export const CATEGORIAS_TICKET = [
   "Saque",
   "Depósito",
   "Mineração",
-  "Cassino",
+  "Jogos",
   "Reembolso",
   "Outros",
 ];

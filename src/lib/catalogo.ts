@@ -306,7 +306,7 @@ export const BANNERS_PADRAO: Banner[] = [
     desc: "Multiplicadores de até 100x esperando por você. Saque antes da explosão!",
     imagem: "",
     ctaTexto: "Jogar Crash",
-    ctaLink: "#/cassino",
+    ctaLink: "#/jogos",
     ativo: true,
     cor: "from-amber-500/50 via-rose-800/40 to-slate-950",
   },
@@ -471,7 +471,7 @@ export interface ConfigModulos {
   mundo: boolean;
   /** Aba Loja */
   loja: boolean;
-  /** Aba Cassino */
+  /** Aba Jogos */
   cassino: boolean;
   /** Aba Carteira */
   carteira: boolean;
@@ -626,7 +626,7 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     logoUrl: "",
     logoEmoji: "◆",
     titulo: "A economia cripto gamificada.",
-    subtitulo: "Mine, jogue no cassino, decore seu quarto 3D e evolua na rede MAS.",
+    subtitulo: "Mine, jogue, decore seu quarto 3D e evolua na rede MAS.",
     slogan: "MINE. CONVERTA. EVOLUA.",
     btnEntrar: "Entrar",
     btnCriar: "Criar conta",
@@ -640,7 +640,7 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     brilhoNeon: true,
     features: [
       { icone: "⛏️", titulo: "Mineração", desc: "Ganhe MAS 24h por dia" },
-      { icone: "🎰", titulo: "Cassino", desc: "12 jogos + bilheteria" },
+      { icone: "🎰", titulo: "Jogos", desc: "12 jogos + bilheteria" },
       { icone: "🏠", titulo: "Quarto 3D", desc: "Decore e receba visitas" },
       { icone: "🌐", titulo: "Mundo", desc: "Explore a comunidade" },
     ],

@@ -874,7 +874,7 @@ function JogosAdmin() {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-black text-white">🎰 Gerenciar Jogos do Cassino</h3>
+            <h3 className="font-black text-white">🎰 Gerenciar Jogos</h3>
             <p className="text-sm text-slate-400">
               Edite nome, visual, RTP e ativação de cada jogo — refletido no lobby em tempo real.
             </p>
@@ -883,9 +883,9 @@ function JogosAdmin() {
             ligado={cfg.cassinoAtivo}
             onChange={(v) => {
               salvarConfig({ cassinoAtivo: v });
-              toast(v ? "Cassino aberto" : "Cassino em manutenção", v ? "ok" : "info");
+              toast(v ? "Jogos abertos" : "Jogos em manutenção", v ? "ok" : "info");
             }}
-            rotulo={cfg.cassinoAtivo ? "Cassino aberto" : "Manutenção"}
+            rotulo={cfg.cassinoAtivo ? "Jogos abertos" : "Manutenção"}
           />
         </div>
       </Card>
@@ -2019,7 +2019,7 @@ function ConfigAdmin() {
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <Switch ligado={cfg.lojaAtiva} onChange={(v) => salvarConfig({ lojaAtiva: v })} rotulo="Loja aberta" />
-            <Switch ligado={cfg.cassinoAtivo} onChange={(v) => salvarConfig({ cassinoAtivo: v })} rotulo="Cassino aberto" />
+            <Switch ligado={cfg.cassinoAtivo} onChange={(v) => salvarConfig({ cassinoAtivo: v })} rotulo="Jogos abertos" />
             <Switch ligado={cfg.saquesAtivos} onChange={(v) => salvarConfig({ saquesAtivos: v })} rotulo="Saques liberados" />
           </div>
 
@@ -2033,7 +2033,7 @@ function ConfigAdmin() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {([
               ["mineracao", "⛏️ Mineração"],
-              ["cassino",   "🎰 Cassino"],
+              ["cassino",   "🎰 Jogos"],
               ["loja",      "🛒 Loja"],
               ["quarto",    "🏠 Quarto"],
               ["mundo",     "🌐 Mundo"],
