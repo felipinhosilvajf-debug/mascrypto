@@ -214,10 +214,10 @@ export default function MiningView() {
                 </p>
                 <p className="text-[9px] text-cyan-200/80">+{fmtHS(detalheHash.hardwareSlots)}</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+              {/* <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
                 <p className="text-slate-500">Equip.</p>
                 <p className="font-black text-cyan-300">{fmtNum(detalheHash.itens, 2)}</p>
-              </div>
+              </div> PARTE DE EQUIPE ITENS MINERACAO*/}
               <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
                 <p className="text-slate-500">Bônus</p>
                 <p className="font-black text-emerald-300">+{fmtNum(detalheHash.bonusPct * 100, 0)}%</p>
