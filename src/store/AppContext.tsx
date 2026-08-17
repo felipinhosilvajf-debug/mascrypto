@@ -226,7 +226,16 @@ function posProcessar(d: UserData): UserData {
 export async function createUserDocument(uid: string, nome: string, email: string): Promise<UserData> {
   const ref = refUsuario(uid);
   const snap = await getDoc(ref);
-  if (snap.exists()) return normalizar(snap.data() as Partial<UserData>, uid);
+  if (snap.exists()) {
+    const d = normalizar(snap.data() as Partial<UserData>, uid);
+    // Se o documento foi criado apressadamente pelo onAuthStateChanged com nome "Anônimo",
+    // mas agora temos o nome correto do registro, atualizamos o documento.
+    if (d.nome === "Anônimo" && nome && nome !== "Anônimo") {
+      d.nome = nome;
+      await setDoc(ref, sanitize(d), { merge: true });
+    }
+    return d;
+  }
 
   // Migração transparente da coleção antiga (não recria saldo inicial)
   try {
@@ -408,7 +417,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       { includeMetadataChanges: false },
       (snap) => {
         setOnline(true);
-        if (!snap.exists()) return;
+        if (!snap.exists()) {
+          // Correção de Race Condition: Se dataRef.current existe, significa que o usuário
+          // já estava logado e o documento sumiu (ex: WIPE do Admin). Aí sim deslogamos.
+          // Se for null, é um login fresco e o documento ainda está sendo criado pelo createUserDocument.
+          if (dataRef.current) {
+            signOut(auth);
+          }
+          return;
+        }
         // Enquanto houver escrita local pendente, a transação é a autoridade
         if (pendentes.current > 0) return;
         const remoto = normalizar(snap.data() as Partial<UserData>, user.uid);
@@ -949,6 +966,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const registrar = async (nome: string, email: string, senha: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, senha);
     await updateProfile(cred.user, { displayName: nome });
+    // Força a atualização imediata do documento com o nome correto,
+    // garantindo que não fique como "Anônimo" devido ao onAuthStateChanged rápido demais.
     const d = await createUserDocument(cred.user.uid, nome, email);
     setData(d);
     emitirBalanceUpdate();
@@ -959,7 +978,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   /* ---------------- ADMIN / MODERADOR ---------------- */
-  const ehAdmin = !!data && (data.admin || ADMIN_EMAILS.includes((data.email || "").toLowerCase()));
+  /* ---------------- ADMIN / MODERADOR ---------------- */
+  // O privilégio real depende exclusivamente das flags no documento do usuário
+  const ehAdmin = !!data && !!data.admin;
   const ehModerador = !!data && !ehAdmin && !!data.moderador;
 
   const desbloquearAdmin = useCallback(

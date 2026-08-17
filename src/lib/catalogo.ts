@@ -604,7 +604,7 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   xpPorAposta: 0.1,
   anuncio: "🎉 Bem-vindo à rede MAS! Recompensa diária liberada — colete todo dia e suba de nível.",
   recompensaDiaria: {
-    ativa: true,
+    ativa: false, // Inicia desativada por padrão, conforme solicitado
     premios: [150, 300, 500, 800, 1200, 2000, 5000],
     multiplicadorStreak: 1,
   },

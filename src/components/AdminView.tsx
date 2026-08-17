@@ -370,6 +370,7 @@ function Contas() {
                 </div>
                 {u.banido && <Selo tom="vermelho">Banido</Selo>}
                 {u.admin && <Selo tom="ciano">Admin</Selo>}
+                {u.moderador && !u.admin && <Selo tom="ouro">Mod</Selo>}
               </div>
               <div className="mt-3 grid grid-cols-2 gap-1.5 text-center text-[11px]">
                 <div className="rounded-lg bg-white/5 p-1.5">
@@ -402,7 +403,7 @@ function Contas() {
         })}
         {!carregando && filtrados.length === 0 && (
           <Card className="sm:col-span-2 xl:col-span-3">
-            <Vazio emoji="��" titulo="Nenhuma conta encontrada" />
+            <Vazio emoji="🔍" titulo="Nenhuma conta encontrada" />
           </Card>
         )}
       </div>
@@ -501,7 +502,11 @@ function EditorConta({
 
         <div className="flex flex-wrap gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
           <Switch ligado={!u.banido} onChange={(v) => set("banido", !v)} rotulo={u.banido ? "Suspensa" : "Conta ativa"} />
-          <Switch ligado={u.admin} onChange={(v) => set("admin", v)} rotulo="Administrador" />
+          <Switch 
+            ligado={u.moderador} 
+            onChange={(v) => setU((x) => ({ ...x, moderador: v, admin: false }))} 
+            rotulo="Cargo: Moderador" 
+          />
         </div>
 
         <div>
@@ -2433,12 +2438,12 @@ function ConfigAdmin() {
                 if (window.prompt("Digite 'DELETAR TUDO' para confirmar a limpeza completa do banco:") === "DELETAR TUDO") {
                   try {
                     const { collection, getDocs, deleteDoc } = await import("firebase/firestore");
-                    const { db } = await import("../lib/firebase");
+                    const { db, auth } = await import("../lib/firebase");
                     
                     const colecoesParaLimpar = [
                       "users", 
                       "tickets", 
-                      "pagamentos", 
+                      "solicitacoes_financeiras", 
                       "online_room", 
                       "chat_quarto", 
                       "chat_global", 
@@ -2453,8 +2458,16 @@ function ConfigAdmin() {
                       await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
                     }
                     
+                    // Não dar localStorage.clear() global pois quebra as credenciais do IndexedDB do Firebase Auth
+                    // Apenas limpamos as chaves próprias
+                    localStorage.removeItem("mascrypto:config");
+                    
                     restaurarPadrao(); // Reseta config/global
-                    toast("WIPE TOTAL concluído com sucesso. A plataforma foi resetada.", "ok");
+                    toast("WIPE TOTAL concluído. Deslogando...", "ok");
+                    
+                    // Desloga o admin atual para forçar recadastro e limpa a tela imediatamente
+                    await auth.signOut();
+                    window.location.reload();
                   } catch (e: any) {
                     toast(`Falha no WIPE: ${e.message}`, "erro");
                   }
