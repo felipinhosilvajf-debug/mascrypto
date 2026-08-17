@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store/AppContext";
 import { useConfig } from "../store/ConfigContext";
 import { fmtBRL, fmtDinamico, fmtHS, fmtMAS, fmtNum, nivelPorXp } from "../lib/economia";
-import { Barra, Botao, Card, Estat, Selo } from "./UI";
+import { Barra, Botao, Card, Estat, Selo, Sparkline } from "./UI";
 
 export default function MiningView() {
   const {
@@ -21,6 +21,7 @@ export default function MiningView() {
     coletarMineracao,
     ativarBoost,
     boostAte,
+    historicoPreco,
   } = useApp();
   const { cfg } = useConfig();
   const [pulso, setPulso] = useState(0);
@@ -136,20 +137,22 @@ export default function MiningView() {
                 <span>Cotação: <b className="text-sky-300">{fmtBRL(precoMAS)}</b>/MAS</span>
               </div>
 
-              {/* ── Projeção de rendimento com conversão em BRL ── */}
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {([
-                  ["Por hora", hashrate * 3600],
-                  ["Por dia",  hashrate * 86400],
-                  ["Acumulado", data.totalMinerado],
-                ] as [string, number][]).map(([rot, val]) => (
-                  <div key={rot} className="rounded-xl border border-white/10 bg-white/5 p-2 text-center">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{rot}</p>
-                    <p className="text-[13px] font-black text-emerald-300">{fmtDinamico(val)}</p>
-                    <p className="text-[10px] font-bold text-sky-300">{fmtBRL(val * precoMAS)}</p>
-                  </div>
-                ))}
-              </div>
+              {/* ── Projeção de rendimento com conversão em BRL (CardProjecao) ── */}
+              {mc.cardProjecao !== false && (
+                <div className="mt-3 grid grid-cols-3 gap-2 animate-[subir_0.3s_ease-out]">
+                  {([
+                    ["Por hora", hashrate * 3600],
+                    ["Por dia",  hashrate * 86400],
+                    ["Acumulado", data.totalMinerado],
+                  ] as [string, number][]).map(([rot, val]) => (
+                    <div key={rot} className="rounded-xl border border-white/10 bg-white/5 p-2 text-center">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{rot}</p>
+                      <p className="text-[13px] font-black text-emerald-300">{fmtDinamico(val)}</p>
+                      <p className="text-[10px] font-bold text-sky-300">{fmtBRL(val * precoMAS)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="mt-2">
                 <Barra
                   pct={capacidade ? (pendente / capacidade) * 100 : 0}
@@ -342,6 +345,109 @@ export default function MiningView() {
           Ring atual: <b className="text-white">{mc.ringNome || "Ring MAS"}</b> · Base: <b className="text-cyan-300">{fmtHS(mc.ringAtiva !== false ? mc.ringHashrate || 0 : 0)}</b>
         </p>
       </Card>
+
+      {/* ── SEÇÃO: Novas Métricas/Cards Dinâmicos Configuráveis pelo Admin ── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Animação Cyber/Pixel de Computadores Minerando */}
+        {mc.cardAnimacaoPixel !== false && (
+          <Card glow className="border-cyan-500/25 bg-[#0c081f] p-4 flex flex-col justify-between h-[230px] overflow-hidden relative">
+            <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-cyan-500/10 blur-2xl" />
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span className="text-lg">🖥️</span> Rig Console (Pixel Art)
+              </h4>
+              <Selo tom="ciano">Ativo</Selo>
+            </div>
+            
+            <div className="flex-1 flex items-center gap-4 mt-3">
+              {/* Gabinete pixelado animado */}
+              <div className="relative shrink-0 h-24 w-20 border-2 border-slate-700 bg-slate-900 rounded-lg p-1.5 flex flex-col justify-between shadow-[0_0_15px_-4px_rgba(34,211,238,0.7)]">
+                {/* Screen */}
+                <div className="h-8 rounded bg-emerald-950/80 border border-slate-800 p-0.5 flex flex-col justify-around overflow-hidden relative">
+                  <span className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+                  <span className="h-0.5 bg-emerald-400 w-full animate-pulse" />
+                  <div className="flex justify-around">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  </div>
+                </div>
+                {/* Fans */}
+                <div className="flex justify-around items-center mt-1">
+                  <div className="h-8 w-8 rounded-full border border-slate-700 bg-slate-950 flex items-center justify-center relative">
+                    <span 
+                      className="absolute inset-1 rounded-full border-t border-b border-cyan-400"
+                      style={{ animation: minerandoAtivo ? `girar ${Math.max(0.2, 3 - hashrate)}s linear infinite` : "none" }}
+                    />
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+                  </div>
+                  {/* LEDs */}
+                  <div className="flex flex-col gap-1">
+                    <span className={`h-1.5 w-1.5 rounded-full ${minerandoAtivo ? "bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" : "bg-slate-700"}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${minerandoAtivo ? "bg-fuchsia-400 animate-pulse shadow-[0_0_8px_#d946ef]" : "bg-slate-700"}`} style={{ animationDelay: "0.2s" }} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${minerandoAtivo ? "bg-amber-400 animate-pulse shadow-[0_0_8px_#fbbf24]" : "bg-slate-700"}`} style={{ animationDelay: "0.4s" }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Scrolling Console logs */}
+              <div className="flex-1 h-24 rounded-lg bg-black/50 border border-white/5 font-mono text-[9px] text-emerald-400 p-2 overflow-hidden flex flex-col justify-end space-y-0.5">
+                <p className="opacity-40">&gt; mas_miner_v8.32_init</p>
+                <p className="opacity-60">&gt; node_connected: mas1_ledger</p>
+                <p className="opacity-80 animate-pulse">&gt; shares_submitted: +{fmtDinamico(hashrate * 0.1)} H/s</p>
+                <p className="font-bold text-cyan-300 animate-[pulsar_1.5s_infinite]">&gt; ring_hashrate: {fmtHS(hashrate)} [ONLINE]</p>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Gráfico de Cotação MAS/BRL ao vivo */}
+        {mc.cardGraficoCotacao !== false && (
+          <Card glow className="border-sky-500/25 p-4 flex flex-col justify-between h-[230px] overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span>📈</span> MAS / BRL ao vivo
+              </h4>
+              <Selo tom="verde">Cotação</Selo>
+            </div>
+            <div className="flex-1 flex flex-col justify-center mt-3">
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="text-xl font-black text-white">{fmtBRL(precoMAS)}</span>
+                <span className="text-xs font-bold text-emerald-300">RTP Sincronizado</span>
+              </div>
+              <div className="h-20">
+                <Sparkline dados={historicoPreco} cor="#22d3ee" />
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Número de Mineração Completo (Algoritmos) */}
+        {mc.cardNumeroMineracao !== false && (
+          <Card glow className="border-fuchsia-500/25 col-span-full p-4">
+            <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-white/5 pb-2">
+              <span>🧮</span> Protocolos e Algoritmos de Hashrate
+            </h4>
+            <div className="mt-3 grid gap-3 sm:grid-cols-5 text-xs">
+              {[
+                { nome: "SHA-256 (MAS)", pct: 35, cor: "text-amber-300 border-amber-500/20" },
+                { nome: "Scrypt (Aux)",  pct: 25, cor: "text-cyan-300 border-cyan-500/20" },
+                { nome: "Ethash",        pct: 20, cor: "text-fuchsia-300 border-fuchsia-500/20" },
+                { nome: "X11 Chain",     pct: 10, cor: "text-sky-300 border-sky-500/20" },
+                { nome: "Cryptonight",   pct: 10, cor: "text-rose-300 border-rose-500/20" },
+              ].map((algo) => {
+                const share = hashrate * (algo.pct / 100);
+                return (
+                  <div key={algo.nome} className={`rounded-xl border p-2.5 bg-black/35 text-center ${algo.cor}`}>
+                    <p className="text-[10px] font-bold uppercase text-slate-500">{algo.nome}</p>
+                    <p className="font-black mt-1">{fmtHS(share)}</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">{algo.pct}% share</p>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Estat emoji="⚡" titulo="Hashrate total" valor={fmtHS(hashrate)} cor="text-cyan-300" />

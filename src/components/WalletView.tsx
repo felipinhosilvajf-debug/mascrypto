@@ -293,8 +293,29 @@ export default function WalletView() {
 
       {aba === "depositar" && (
         <Card className="mx-auto max-w-2xl">
-          <h3 className="font-black text-white">Solicitar depósito manual</h3>
-          <p className="mt-1 text-xs text-slate-400">Faça o PIX e envie a referência do comprovante. O saldo só será creditado após aprovação do Admin.</p>
+          <h3 className="font-black text-white">Adicionar Saldo</h3>
+          <p className="mt-1 text-xs text-slate-400">Pague via PIX, Cartão ou Boleto usando nossa plataforma parceira oficial e segura.</p>
+          
+          <div className="mt-4 mb-6">
+            <a 
+              href="https://www.asaas.com/c/rao3eab7nar64l3h" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="group relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 shadow-[0_0_30px_-5px_rgba(16,185,129,0.7)] transition-all hover:scale-[1.02] hover:shadow-[0_0_40px_-5px_rgba(16,185,129,0.9)] active:scale-95"
+            >
+              <div className="absolute inset-0 bg-white/20 opacity-0 transition-opacity group-hover:opacity-100" />
+              <span className="text-3xl drop-shadow-md">💎</span>
+              <span className="text-lg font-black tracking-wide text-white drop-shadow-md">
+                COMPRAR CRÉDITOS AGORA
+              </span>
+            </a>
+          </div>
+
+          <div className="border-t border-white/10 pt-5">
+            <h3 className="font-black text-white text-sm">Enviar Comprovante (Depósito Manual)</h3>
+            <p className="mt-1 text-xs text-slate-400">Se você já pagou, envie a referência do comprovante para o crédito ser aprovado pelo Admin.</p>
+          </div>
+
           <div className="mt-4 space-y-3">
             <Campo label="Valor do PIX em R$" dica={`Mínimo ${fmtBRL(depositoMinimo)}`}>
               <Input type="number" min={depositoMinimo} step="0.01" value={valorDeposito} onChange={(e) => setValorDeposito(Math.max(0, Number(e.target.value)))} />

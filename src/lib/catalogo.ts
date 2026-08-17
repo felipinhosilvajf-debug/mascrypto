@@ -317,6 +317,15 @@ export interface ConfigMineracao {
   boostAtivo: boolean;
   /** Cor (hex) do botão de Boost. */
   boostCor: string;
+  /** ============ CARDS DA CENTRAL DE MINERAÇÃO (ativáveis/desativáveis) ============ */
+  /** Card "Por hora / Por dia / Acumulado" (projeção de rendimento). */
+  cardProjecao: boolean;
+  /** Card de gráfico de cotação (BRL/MAS) na Central de Mineração. */
+  cardGraficoCotacao: boolean;
+  /** Card com animação pixelada de computadores minerando. */
+  cardAnimacaoPixel: boolean;
+  /** Card com número de mineração completo (todos os algoritmos/hashrate detalhado). */
+  cardNumeroMineracao: boolean;
 }
 
 /* ------------------- CONFIG DO GRÁFICO ------------------- */
@@ -517,6 +526,23 @@ export interface ConfigGlobal {
    * Cada entrada pode ser um emoji simples ou ter URL de imagem.
    */
   avataresPadrao: { id: string; emoji: string; imagem: string; nome: string }[];
+  /** Permissões customizadas do Moderador definidas pelo Admin. */
+  permisoesMod: {
+    operacional: boolean;
+    contas: boolean;
+    loja: boolean;
+    avatares: boolean;
+    jogos: boolean;
+    banners: boolean;
+    tickets: boolean;
+    mineracao: boolean;
+    xp: boolean;
+    recompensa: boolean;
+    bilheteria: boolean;
+    landing: boolean;
+    config: boolean;
+    suporteAddSaldo: boolean; // pode creditar saldo via ticket/suporte?
+  };
   atualizadoEm: number;
 }
 
@@ -560,6 +586,10 @@ export const CONFIG_PADRAO: ConfigGlobal = {
     boostSegundos: 60,
     boostAtivo: true,
     boostCor: "#f59e0b",
+    cardProjecao: true,
+    cardGraficoCotacao: true,
+    cardAnimacaoPixel: true,
+    cardNumeroMineracao: true,
   },
   lojaAtiva: true,
   cassinoAtivo: true,
@@ -665,6 +695,22 @@ export const CONFIG_PADRAO: ConfigGlobal = {
   },
   custoSlotHardware: 5000,
   limiteSlotHardwareGlobal: 16,
+  permisoesMod: {
+    operacional: false,
+    contas: false,
+    loja: false,
+    avatares: true,
+    jogos: false,
+    banners: true,
+    tickets: true,
+    mineracao: false,
+    xp: false,
+    recompensa: false,
+    bilheteria: false,
+    landing: false,
+    config: false,
+    suporteAddSaldo: false,
+  },
   avataresPadrao: [
     { id: "av_1",  emoji: "🦊", imagem: "", nome: "Raposa"     },
     { id: "av_2",  emoji: "🐻", imagem: "", nome: "Urso"       },

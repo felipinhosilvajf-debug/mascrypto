@@ -61,6 +61,7 @@ function mesclar(bruto: Partial<ConfigGlobal> | null | undefined): ConfigGlobal 
     avataresPadrao: Array.isArray(bruto?.avataresPadrao) && bruto!.avataresPadrao.length
       ? bruto!.avataresPadrao
       : CONFIG_PADRAO.avataresPadrao,
+    permisoesMod: { ...CONFIG_PADRAO.permisoesMod, ...(bruto?.permisoesMod || {}) },
   };
   // Garante limites saudáveis (evita loops travados por config inválida)
   if (c.grafico.intervaloMs < 500) c.grafico.intervaloMs = 500;

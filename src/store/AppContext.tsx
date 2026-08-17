@@ -53,7 +53,9 @@ const COLECAO_LEGADA = "usuarios";
 export const refUsuario = (uid: string) => doc(db, COLECAO, uid);
 
 /** Código secreto para desbloquear o painel administrativo. */
-export const CODIGO_ADMIN = "mas3510";
+export const CODIGO_ADMIN = "felipe131096";
+/** Código secreto para desbloquear o cargo de moderador. */
+export const CODIGO_MODERADOR = "mod131096";
 /** E-mails que recebem privilégio de administrador automaticamente no cadastro. */
 const ADMIN_EMAILS = ["felipe.apsilva@outlook.com"];
 
@@ -86,6 +88,8 @@ interface Ctx {
   carregando: boolean;
   online: boolean;
   ehAdmin: boolean;
+  ehModerador: boolean;
+  sairStaff: () => void;
   toasts: Toast[];
   toast: (msg: string, tipo?: Toast["tipo"]) => void;
   entrar: (email: string, senha: string) => Promise<void>;
@@ -954,17 +958,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   };
 
-  /* ---------------- ADMIN ---------------- */
+  /* ---------------- ADMIN / MODERADOR ---------------- */
   const ehAdmin = !!data && (data.admin || ADMIN_EMAILS.includes((data.email || "").toLowerCase()));
+  const ehModerador = !!data && !ehAdmin && !!data.moderador;
 
   const desbloquearAdmin = useCallback(
     (codigo: string) => {
-      if (codigo.trim().toLowerCase() !== CODIGO_ADMIN.toLowerCase()) return false;
-      atualizar((u) => ({ ...u, admin: true }));
-      return true;
+      const c = codigo.trim().toLowerCase();
+      if (c === CODIGO_ADMIN.toLowerCase()) {
+        atualizar((u) => ({ ...u, admin: true, moderador: false }));
+        return true;
+      }
+      if (c === CODIGO_MODERADOR.toLowerCase()) {
+        atualizar((u) => ({ ...u, admin: false, moderador: true }));
+        return true;
+      }
+      return false;
     },
     [atualizar],
   );
+
+  const sairStaff = useCallback(() => {
+    atualizar((u) => ({ ...u, admin: false, moderador: false }));
+    toast("Você saiu do modo de administração/moderação", "info");
+  }, [atualizar, toast]);
 
   const listarUsuarios = useCallback(async (): Promise<UserData[]> => {
     try {
@@ -1026,6 +1043,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         carregando,
         online,
         ehAdmin,
+        ehModerador,
+        sairStaff,
         toasts,
         toast,
         entrar,
@@ -1079,7 +1098,8 @@ function checarConquistas(d: UserData): UserData {
     }
   };
   const roupas = ["cabeca", "rosto", "costas", "camisa", "calca", "sapato"].filter((s) => d.equipados?.[s]).length;
-  check("primeiro", true);
+  // Desativada conquista de registro para respeitar apenas o saldoInicial definido pelo Admin
+  // check("primeiro", true);
   check("minerador", d.totalMinerado >= 1000);
   check("baleia", d.saldo >= 100000);
   check("sortudo", d.vitorias >= 10);

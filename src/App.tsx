@@ -136,6 +136,8 @@ function Shell() {
     online,
     hashrate,
     ehAdmin,
+    ehModerador,
+    sairStaff,
     desbloquearAdmin,
     aceitarTermos,
   } = useApp();
@@ -147,6 +149,8 @@ function Shell() {
   const [menu, setMenu] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [, forcar] = useState(0);
+
+  const ehStaff = ehAdmin || ehModerador;
 
   const temaInfo = TEMA_CLASSES[tema];
 
@@ -161,13 +165,13 @@ function Shell() {
   }, []);
 
   useEffect(() => {
-    if (pag === "admin" && !ehAdmin) setPag("inicio");
+    if (pag === "admin" && !ehStaff) setPag("inicio");
     // Sair da aba Quarto encerra a visita e volta ao modo anfitrião
     if (pag !== "quarto") {
       setQuartoVisitado(null);
       setAbrirAvatar(false);
     }
-  }, [pag, ehAdmin]);
+  }, [pag, ehStaff]);
 
   if (carregando)
     return (
@@ -224,7 +228,9 @@ function Shell() {
     if (n.id === "mundo" && nivelPorXp(data.xp) < (cfg.requisitosNivel?.acessarMundo || 1)) return false;
     return true;
   });
-  const navCompleta = ehAdmin ? [...NAV, { id: "admin", nome: "Admin", emoji: "🛡️" }] : NAV;
+  const navCompleta = ehStaff
+    ? [...NAV, { id: "admin", nome: ehAdmin ? "Admin" : "Moderação", emoji: "🛡️" }]
+    : NAV;
 
   /* Estilos por tema */
   const bgMain =
@@ -407,17 +413,30 @@ function Shell() {
                 >
                   🧍 Personalizar Avatar
                 </button>
-                {ehAdmin ? (
-                  <button
-                    onClick={() => { setMenu(false); setPag("admin"); }}
-                    className="w-full rounded-xl bg-cyan-500/15 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/25"
-                  >
-                    🛡️ Painel administrativo
-                  </button>
+                {ehStaff ? (
+                  <div className="space-y-1.5">
+                    <button
+                      onClick={() => { setMenu(false); setPag("admin"); }}
+                      className="w-full rounded-xl bg-cyan-500/15 py-2 text-sm font-bold text-cyan-300 hover:bg-cyan-500/25"
+                    >
+                      🛡️ {ehAdmin ? "Painel Administrativo" : "Painel de Moderação"}
+                    </button>
+                    {/* Botão chamativo e prático para deslogar do modo Admin ou Moderador */}
+                    <button
+                      onClick={() => {
+                        setMenu(false);
+                        setPag("inicio");
+                        sairStaff();
+                      }}
+                      className="w-full rounded-xl bg-amber-500/10 border border-amber-500/20 py-2 text-xs font-black text-amber-300 hover:bg-amber-500/20"
+                    >
+                      🚪 Deslogar da Administração
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex gap-1.5">
                     <Input
-                      placeholder="Código admin"
+                      placeholder="Código Admin / Mod"
                       value={codigo}
                       onChange={(e) => setCodigo(e.target.value)}
                       className="py-1.5 text-xs"
@@ -427,7 +446,7 @@ function Shell() {
                       className="px-3 py-1.5 text-xs"
                       onClick={() => {
                         if (desbloquearAdmin(codigo)) {
-                          toast("Modo administrador liberado 🛡️", "ok");
+                          toast("Modo administrativo/moderação liberado 🛡️", "ok");
                           setMenu(false);
                         } else toast("Código inválido", "erro");
                         setCodigo("");
@@ -473,7 +492,7 @@ function Shell() {
         {pag === "carteira" && <WalletView />}
         {pag === "suporte" && <SuporteView />}
         {pag === "ranking" && <Ranking />}
-        {pag === "admin" && ehAdmin && <AdminView />}
+        {pag === "admin" && ehStaff && <AdminView />}
       </main>
 
       <footer className="relative border-t border-white/[0.07] py-8 text-center text-xs text-slate-500">

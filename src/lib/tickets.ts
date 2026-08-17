@@ -57,6 +57,8 @@ export function novoMensagem(autor: MensagemTicket["autor"], texto: string): Men
   };
 }
 
+import { sanitize } from "./sanitize";
+
 export async function criarTicket(
   uid: string,
   nome: string,
@@ -78,7 +80,7 @@ export async function criarTicket(
     atualizadoEm: Date.now(),
     mensagens: [novoMensagem("usuario", texto)],
   };
-  await setDoc(ref, t);
+  await setDoc(ref, sanitize(t));
   return t;
 }
 
@@ -91,4 +93,9 @@ export async function responderTicket(id: string, autor: MensagemTicket["autor"]
 
 export async function setStatusTicket(id: string, status: TicketStatus) {
   await updateDoc(doc(db, "tickets", id), { status, atualizadoEm: Date.now() });
+}
+
+export async function excluirTicket(id: string) {
+  const { deleteDoc } = await import("firebase/firestore");
+  await deleteDoc(doc(db, "tickets", id));
 }

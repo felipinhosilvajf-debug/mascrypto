@@ -92,6 +92,7 @@ export interface UserData {
   conquistas: string[];
   criadoEm: number;
   admin: boolean;
+  moderador: boolean;
   banido: boolean;
   /** Versão dos Termos de Uso aceita pelo usuário. */
   termosVersao?: string;
@@ -145,6 +146,7 @@ export function novoUsuario(uid: string, nome: string, email: string, saldoInici
     conquistas: [],
     criadoEm: Date.now(),
     admin: false,
+    moderador: false,
     banido: false,
     adminRev: 0,
     atualizadoEm: Date.now(),
@@ -190,6 +192,7 @@ export function normalizar(bruto: Partial<UserData>, uid: string): UserData {
   d.saldo = Number(d.saldo) || 0;
   d.brl = Number(d.brl) || 0;
   d.avatarImg = typeof d.avatarImg === "string" ? d.avatarImg : "";
+  d.moderador = !!(d as any).moderador;
   d.xp = Math.max(0, Number(d.xp) || 0);
   d.nivel = nivelPorXp(d.xp); // nível SEMPRE derivado do XP
   return d;

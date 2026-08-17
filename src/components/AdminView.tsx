@@ -59,6 +59,7 @@ type AbaAdmin =
   | "recompensa"
   | "bilheteria"
   | "landing"
+  | "permissoes"
   | "config";
 
 const ABAS = [
@@ -74,21 +75,57 @@ const ABAS = [
   { id: "recompensa" as const, nome: "Recompensa Diária", emoji: "🎁" },
   { id: "bilheteria" as const, nome: "Bilheteria", emoji: "🎟️" },
   { id: "landing" as const, nome: "Index / Login", emoji: "🖼️" },
+  { id: "permissoes" as const, nome: "Permissões Mod", emoji: "🔑" },
   { id: "config" as const, nome: "Configurações", emoji: "⚙️" },
 ];
 
 export default function AdminView() {
-  const [aba, setAba] = useState<AbaAdmin>("operacional");
+  const { ehAdmin, ehModerador } = useApp();
+  const { cfg } = useConfig();
   const { configOnline } = useConfig();
+
+  // Filtra as abas disponíveis baseando-se nas permissões do Moderador (definidas pelo Admin)
+  const abasDisponiveis = useMemo(() => {
+    if (ehAdmin) return ABAS;
+    if (ehModerador) {
+      const perms = cfg.permisoesMod || {};
+      // O moderador só vê o que estiver marcado como true no banco, e nunca vê a aba de permissões
+      return ABAS.filter(
+        (a) => a.id !== "permissoes" && perms[a.id as keyof typeof perms] === true
+      );
+    }
+    return [];
+  }, [ehAdmin, ehModerador, cfg.permisoesMod]);
+
+  // Seta a primeira aba disponível como padrão ativo
+  const [aba, setAba] = useState<AbaAdmin>(() => {
+    if (ehAdmin) return "operacional";
+    const perms = cfg.permisoesMod || {};
+    const primeira = ABAS.find((a) => a.id !== "permissoes" && perms[a.id as keyof typeof perms] === true);
+    return (primeira?.id as AbaAdmin) || "tickets";
+  });
+
+  // Garante que o estado sincronize se a aba ativa for desativada
+  useEffect(() => {
+    if (!abasDisponiveis.some((a) => a.id === aba)) {
+      if (abasDisponiveis.length > 0) {
+        setAba(abasDisponiveis[0].id as AbaAdmin);
+      }
+    }
+  }, [abasDisponiveis, aba]);
 
   return (
     <div className="space-y-5">
       <Card glow className="overflow-hidden bg-[radial-gradient(120%_150%_at_0%_0%,rgba(56,189,248,0.18),transparent_55%)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-black text-white">🛡️ Painel Administrativo</h2>
+            <h2 className="text-2xl font-black text-white">
+              🛡️ {ehAdmin ? "Painel Administrativo" : "Painel de Moderação"}
+            </h2>
             <p className="text-sm text-slate-400">
-              Regras e configurações centralizadas — aplicadas em tempo real para todos os usuários.
+              {ehAdmin
+                ? "Regras e configurações centralizadas — aplicadas em tempo real para todos os usuários."
+                : "Acesso administrativo restrito pelas permissões configuradas pelo Administrador."}
             </p>
           </div>
           <Selo tom={configOnline ? "verde" : "ouro"}>
@@ -97,7 +134,7 @@ export default function AdminView() {
         </div>
       </Card>
 
-      <Abas abas={ABAS} ativa={aba} onChange={setAba} />
+      <Abas abas={abasDisponiveis} ativa={aba} onChange={setAba} />
 
       {aba === "operacional" && <Operacional />}
       {aba === "contas" && <Contas />}
@@ -111,6 +148,7 @@ export default function AdminView() {
       {aba === "recompensa" && <RecompensaAdmin />}
       {aba === "bilheteria" && <BilheteriaAdmin />}
       {aba === "landing" && <LandingAdmin />}
+      {aba === "permissoes" && <PermissoesAdmin />}
       {aba === "config" && <ConfigAdmin />}
     </div>
   );
@@ -364,7 +402,7 @@ function Contas() {
         })}
         {!carregando && filtrados.length === 0 && (
           <Card className="sm:col-span-2 xl:col-span-3">
-            <Vazio emoji="🔍" titulo="Nenhuma conta encontrada" />
+            <Vazio emoji="��" titulo="Nenhuma conta encontrada" />
           </Card>
         )}
       </div>
@@ -1523,7 +1561,8 @@ function EditorBanner({
    ABA TICKETS / SUPORTE — listar, filtrar, responder, status e crédito
    ======================================================================== */
 function TicketsAdmin() {
-  const { toast, creditarUsuario } = useApp();
+  const { toast, creditarUsuario, ehModerador } = useApp();
+  const { cfg } = useConfig();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [filtro, setFiltro] = useState<string>("todos");
   const [sel, setSel] = useState<Ticket | null>(null);
@@ -1586,17 +1625,37 @@ function TicketsAdmin() {
         <Estat emoji="🔴" titulo="Fechados" valor={String(tickets.filter((t) => t.status === "fechado").length)} cor="text-rose-300" />
       </div>
 
-      <Abas
-        abas={[
-          { id: "todos", nome: "Todos", emoji: "📥", badge: tickets.length },
-          { id: "pendente", nome: "Pendente", emoji: "🟡", badge: tickets.filter((t) => t.status === "pendente").length },
-          { id: "analise", nome: "Em análise", emoji: "🔵", badge: tickets.filter((t) => t.status === "analise").length },
-          { id: "resolvido", nome: "Resolvido", emoji: "🟢" },
-          { id: "fechado", nome: "Fechado", emoji: "🔴" },
-        ]}
-        ativa={filtro}
-        onChange={setFiltro}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Abas
+          abas={[
+            { id: "todos", nome: "Todos", emoji: "📥", badge: tickets.length },
+            { id: "pendente", nome: "Pendente", emoji: "🟡", badge: tickets.filter((t) => t.status === "pendente").length },
+            { id: "analise", nome: "Em análise", emoji: "🔵", badge: tickets.filter((t) => t.status === "analise").length },
+            { id: "resolvido", nome: "Resolvido", emoji: "🟢" },
+            { id: "fechado", nome: "Fechado", emoji: "🔴" },
+          ]}
+          ativa={filtro}
+          onChange={setFiltro}
+        />
+        <Botao
+          variante="ghost"
+          className="text-xs text-rose-300 hover:bg-rose-500/15"
+          onClick={async () => {
+            if (!window.confirm("Isso apagará TODOS os tickets resolvidos e fechados. Tem certeza?")) return;
+            try {
+              const { excluirTicket } = await import("../lib/tickets");
+              const praDeletar = tickets.filter((t) => t.status === "resolvido" || t.status === "fechado");
+              await Promise.all(praDeletar.map((t) => excluirTicket(t.id)));
+              toast(`${praDeletar.length} tickets apagados`, "ok");
+              setSel(null);
+            } catch {
+              toast("Erro ao excluir tickets", "erro");
+            }
+          }}
+        >
+          🗑️ Limpar Atendidos
+        </Botao>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
         <div className="space-y-2">
@@ -1697,20 +1756,26 @@ function TicketsAdmin() {
                 </Botao>
               </div>
 
-              <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
-                <p className="text-xs font-bold text-emerald-300">⚡ Ação rápida: crédito na conta do usuário</p>
-                <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <Campo label="MAS">
-                    <Input type="number" min={0} value={credMAS} onChange={(e) => setCredMAS(Math.max(0, Number(e.target.value)))} className="w-28" />
-                  </Campo>
-                  <Campo label="R$">
-                    <Input type="number" min={0} value={credBRL} onChange={(e) => setCredBRL(Math.max(0, Number(e.target.value)))} className="w-28" />
-                  </Campo>
-                  <Botao variante="sucesso" onClick={creditar} disabled={credMAS <= 0 && credBRL <= 0}>
-                    Creditar na conta
-                  </Botao>
+              {(!ehModerador || cfg.permisoesMod?.suporteAddSaldo === true) ? (
+                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-3">
+                  <p className="text-xs font-bold text-emerald-300">⚡ Ação rápida: crédito na conta do usuário</p>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <Campo label="MAS">
+                      <Input type="number" min={0} value={credMAS} onChange={(e) => setCredMAS(Math.max(0, Number(e.target.value)))} className="w-28" />
+                    </Campo>
+                    <Campo label="R$">
+                      <Input type="number" min={0} value={credBRL} onChange={(e) => setCredBRL(Math.max(0, Number(e.target.value)))} className="w-28" />
+                    </Campo>
+                    <Botao variante="sucesso" onClick={creditar} disabled={credMAS <= 0 && credBRL <= 0}>
+                      Creditar na conta
+                    </Botao>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <p className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center text-xs text-slate-500">
+                  🔒 Sua conta de Moderador não possui permissão para conceder créditos de saldo.
+                </p>
+              )}
             </div>
           )}
         </Card>
@@ -1806,6 +1871,59 @@ function MineracaoAdmin() {
           <Campo label="Capacidade (horas)">
             <Input type="number" value={m.capHoras} onChange={(e) => set({ capHoras: Number(e.target.value) })} />
           </Campo>
+        </div>
+      </Card>
+
+      {/* ── SEÇÃO EXCLUSIVA: Gestão de Cards da Central de Mineração ── */}
+      <Card glow className="border-fuchsia-500/20">
+        <h3 className="font-black text-white">🗂️ Cards da Central de Mineração</h3>
+        <p className="text-sm text-slate-400">
+          Ative ou desative individualmente cada card, seção e elemento dinâmico na tela de Mineração pública.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3.5 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-white text-sm">Por hora / Por dia / Acumulado</p>
+              <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Exibe a projeção de rendimento e conversão de valores em BRL.</p>
+            </div>
+            <Switch
+              ligado={m.cardProjecao !== false}
+              onChange={(v) => set({ cardProjecao: v })}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3.5 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-white text-sm">Gráfico de Cotação</p>
+              <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Mostra o sparkline de variação de preço MAS/BRL ao vivo.</p>
+            </div>
+            <Switch
+              ligado={m.cardGraficoCotacao !== false}
+              onChange={(v) => set({ cardGraficoCotacao: v })}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3.5 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-white text-sm">Computadores Minerando (Pixel Art)</p>
+              <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Animação cyberpunk dinâmica simulando o processamento do hardware.</p>
+            </div>
+            <Switch
+              ligado={m.cardAnimacaoPixel !== false}
+              onChange={(v) => set({ cardAnimacaoPixel: v })}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3.5 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-white text-sm">Número de Mineração Completo</p>
+              <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Detalhamento completo do hashrate por algoritmos.</p>
+            </div>
+            <Switch
+              ligado={m.cardNumeroMineracao !== false}
+              onChange={(v) => set({ cardNumeroMineracao: v })}
+            />
+          </div>
         </div>
       </Card>
 
@@ -2295,13 +2413,60 @@ function ConfigAdmin() {
       </Card>
 
       <Card className="border-rose-500/20">
-        <h3 className="font-black text-rose-300">⚠️ Zona de risco</h3>
+        <h3 className="font-black text-rose-300">⚠️ Zona de Risco e Manutenção</h3>
         <p className="mt-1 text-sm text-slate-400">
           Restaura o catálogo de itens, jogos, banners e parâmetros para os valores de fábrica. Não afeta as contas dos usuários.
         </p>
-        <Botao variante="perigo" className="mt-3" onClick={() => setConf(true)}>
+        <Botao variante="perigo" className="mt-3 w-full sm:w-auto" onClick={() => setConf(true)}>
           Restaurar configuração padrão
         </Botao>
+
+        <div className="mt-6 border-t border-rose-500/20 pt-4">
+          <h4 className="font-black text-rose-500">HARD RESET / WIPE TOTAL</h4>
+          <p className="mt-1 text-xs text-rose-400/80">
+            Isto irá apagar <b>absolutamente tudo</b> no banco de dados (Contas, Emails, Tickets, Saques, Depósitos, Salas Online, Chats e Históricos) e resetar a plataforma para o estado "zero". <b>ESTA AÇÃO É IRREVERSÍVEL.</b>
+          </p>
+          <Botao 
+            className="mt-3 w-full sm:w-auto bg-rose-700 text-white hover:bg-rose-600 shadow-[0_0_20px_-5px_rgba(225,29,72,0.8)]" 
+            onClick={async () => {
+              if (window.confirm("ATENÇÃO: Você tem certeza ABSOLUTA que deseja DELETAR TUDO?\nIsso apagará todas as contas, saldos e registros da plataforma permanentemente!")) {
+                if (window.prompt("Digite 'DELETAR TUDO' para confirmar a limpeza completa do banco:") === "DELETAR TUDO") {
+                  try {
+                    const { collection, getDocs, deleteDoc } = await import("firebase/firestore");
+                    const { db } = await import("../lib/firebase");
+                    
+                    const colecoesParaLimpar = [
+                      "users", 
+                      "tickets", 
+                      "pagamentos", 
+                      "online_room", 
+                      "chat_quarto", 
+                      "chat_global", 
+                      "bilheteria_historico", 
+                      "bilheteria"
+                    ];
+                    
+                    toast("Iniciando WIPE TOTAL do banco de dados...", "info");
+                    
+                    for (const colName of colecoesParaLimpar) {
+                      const snap = await getDocs(collection(db, colName));
+                      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+                    }
+                    
+                    restaurarPadrao(); // Reseta config/global
+                    toast("WIPE TOTAL concluído com sucesso. A plataforma foi resetada.", "ok");
+                  } catch (e: any) {
+                    toast(`Falha no WIPE: ${e.message}`, "erro");
+                  }
+                } else {
+                  toast("Cancelado: O texto de confirmação não confere.", "info");
+                }
+              }
+            }}
+          >
+            🔥 WIPE - DELETAR TUDO (Reset Completo)
+          </Botao>
+        </div>
       </Card>
 
       <Confirmar
@@ -2639,6 +2804,65 @@ function LandingAdmin() {
           >
             {L.btnEntrar}
           </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ========================================================================
+   ABA PERMISSÕES DO MODERADOR — Controle total de abas do Moderador (Apenas Admin)
+   ======================================================================== */
+function PermissoesAdmin() {
+  const { cfg, salvarConfig } = useConfig();
+  const { toast } = useApp();
+  const p = cfg.permisoesMod || {};
+
+  const setPerm = (key: string, v: boolean) => {
+    salvarConfig({ permisoesMod: { ...p, [key]: v } });
+    toast("Permissões de moderação atualizadas em tempo real ✅", "ok");
+  };
+
+  const abasInfo: { id: keyof typeof p; nome: string; desc: string }[] = [
+    { id: "operacional", nome: "🎫 Vendas e Operacional", desc: "Acesso a saques, depósitos e relatórios de fluxo diário." },
+    { id: "contas", nome: "👥 Gerenciamento de Contas", desc: "Ver dados dos usuários, banir contas e editar saldos." },
+    { id: "loja", nome: "🛒 Itens da Loja", desc: "Criar, editar e excluir itens na Loja / Shop." },
+    { id: "avatares", nome: "👤 Avatares", desc: "Gerenciar galeria de avatares padrão e skins premium." },
+    { id: "jogos", nome: "🎰 Gerenciar Jogos", desc: "Editar multiplicadores, RTP e paleta visual dos jogos." },
+    { id: "banners", nome: "📣 Banners & Avisos", desc: "Editar e publicar banners dinâmicos da página inicial." },
+    { id: "tickets", nome: "🎧 Tickets / Suporte", desc: "Acessar o SAC, listar, filtrar e responder tickets." },
+    { id: "suporteAddSaldo", nome: "⚡ Suporte: Ação Rápida de Crédito", desc: "Permitir que o moderador envie créditos de MAS/R$ via chat de tickets." },
+    { id: "mineracao", nome: "⛏️ Central de Mineração", desc: "Configurar ring automática, cliques e preço do boost." },
+    { id: "xp", nome: "⭐ XP e Níveis", desc: "Configurar curva de progressão e ajustar XP de usuários." },
+    { id: "recompensa", nome: "🎁 Recompensa Diária", desc: "Editar prêmios de login e multiplicador de streak." },
+    { id: "bilheteria", nome: "🎟️ Bilheteria", desc: "Controlar o sorteio dinâmico, pausar ou sortear a rodada." },
+    { id: "landing", nome: "🖼️ Index / Login", desc: "Configurar textos, efeitos e cores da tela inicial." },
+    { id: "config", nome: "⚙️ Configurações Gerais", desc: "Gerenciar chaves do site, taxas e depósito/saque mínimos." },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card glow className="border-cyan-500/25">
+        <h3 className="font-black text-white">🔑 Permissões do Moderador</h3>
+        <p className="text-sm text-slate-400">
+          Como administrador supremo, selecione abaixo exatamente quais abas e recursos o cargo <b className="text-cyan-300">Moderador</b> terá acesso ao logar na plataforma.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {abasInfo.map((ab) => (
+            <div key={ab.id} className="flex flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
+              <div>
+                <p className="font-black text-white text-sm">{ab.nome}</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{ab.desc}</p>
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase text-slate-500">Acesso Habilitado</span>
+                <Switch
+                  ligado={p[ab.id] === true}
+                  onChange={(v) => setPerm(String(ab.id), v)}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
     </div>
